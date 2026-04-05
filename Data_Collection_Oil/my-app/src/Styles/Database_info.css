@@ -1,0 +1,19 @@
+.database-container { padding: 20px; }
+.filter-input {
+    margin-bottom: 20px;
+    padding: 10px;
+    width: 300px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.data-table th, .data-table td {
+    border: 1px solid #ddd;
+    padding: 12px;
+    text-align: left;
+}
+.data-table th { background-color: #f4f4f4; }
+.data-table tr:hover { background-color: #f9f9f9; }

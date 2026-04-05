@@ -107,3 +107,15 @@ def graph_tweets_vs_oil_by_publisher(request):
         result[publisher] = daily_pub.to_dict(orient="records")
 
     return JsonResponse(result, safe=False)
+
+##added by rotem
+def get_all_data(request):
+    df = load_df()
+    if df.empty:
+        return JsonResponse([], safe=False)
+    
+    df = df.sort_values(by="date", ascending=False)
+    
+    df["date"] = df["date"].dt.strftime("%Y-%m-%d")
+    
+    return JsonResponse(df.to_dict(orient="records"), safe=False)
