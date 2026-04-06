@@ -111,9 +111,12 @@ def graph_tweets_vs_oil_by_publisher(request):
 ##added by rotem
 def get_all_data(request):
     df = load_df()
+    print(f"DEBUG: Found {len(df)} rows in MongoDB")
     if df.empty:
         return JsonResponse([], safe=False)
     
+    df = df.fillna("")
+
     df = df.sort_values(by="date", ascending=False)
     
     df["date"] = df["date"].dt.strftime("%Y-%m-%d")
