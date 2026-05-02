@@ -14,7 +14,7 @@ csv_file = r"C:\Users\97254\Desktop\twitter-scraper-author-data-main\Date_Collec
 
 client = MongoClient("mongodb+srv://rotemba3_db_user:12345@dataoilscollect.bje8esi.mongodb.net/")
 
-db = client["DataCollectionOil"]   # you can change name if you want
+db = client["DataCollectionOil"]
 collection = db["modeltrainig"]
 
 # ==============================
@@ -22,40 +22,76 @@ collection = db["modeltrainig"]
 # ==============================
 
 df = pd.read_csv(csv_file, encoding="utf-8-sig")
-
-# clean NaN → None (Mongo friendly)
 df = df.where(pd.notnull(df), None)
+
+# ==============================
+# CLEAN RECORDS
+# ==============================
 
 def clean_record(record):
     cleaned = {}
+
     for k, v in record.items():
         if isinstance(v, float) and math.isnan(v):
             cleaned[k] = None
         else:
             cleaned[k] = v
+
     return cleaned
+
 
 records = [clean_record(r) for r in df.to_dict(orient="records")]
 
 # ==============================
-# OPTIONAL: CLEAR OLD DATA
+# INSERT NEW DATES + UPDATE EXISTING PRICES
 # ==============================
 
-collection.delete_many({})   # ⚠️ deletes everything in collection
+inserted_count = 0
+updated_count = 0
+skipped_count = 0
 
-# ==============================
-# INSERT
-# ==============================
+price_fields = [
+    "oil_price",
+    "oil_price_yesterday",
+    "gas_price"
+]
 
-if records:
-    result = collection.insert_many(records)
-    print(f"Inserted {len(result.inserted_ids)} documents into 'modeltrainig'")
-else:
-    print("No records to insert")
+for record in records:
+    record_date = record.get("date")
+
+    if record_date is None:
+        skipped_count += 1
+        continue
+
+    existing = collection.find_one({"date": record_date})
+
+    if existing:
+        update_fields = {}
+
+        for field in price_fields:
+            if field in record:
+                update_fields[field] = record.get(field)
+
+        if update_fields:
+            collection.update_many(
+                {"date": record_date},
+                {"$set": update_fields}
+            )
+            updated_count += 1
+        else:
+            skipped_count += 1
+
+    else:
+        collection.insert_one(record)
+        inserted_count += 1
 
 # ==============================
 # VERIFY
 # ==============================
+
+print(f"Inserted new records: {inserted_count}")
+print(f"Updated existing date records: {updated_count}")
+print(f"Skipped records: {skipped_count}")
 
 print("Total documents:", collection.count_documents({}))
 print("Sample:")
