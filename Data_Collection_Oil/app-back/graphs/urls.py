@@ -5,6 +5,7 @@ from .views import (
     graph_tweets_vs_oil_by_publisher,
     get_latest_prediction,
     graph_prediction_accuracy,
+    get_all_data,
 )
 
 urlpatterns = [
@@ -14,4 +15,5 @@ urlpatterns = [
 
     path("prediction/", get_latest_prediction),
     path("prediction/accuracy/", graph_prediction_accuracy),
+    path('get-all-data/', get_all_data),
 ]
