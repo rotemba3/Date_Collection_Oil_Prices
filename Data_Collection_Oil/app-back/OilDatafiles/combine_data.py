@@ -1,53 +1,128 @@
-import pandas as pd
 import os
+import pandas as pd
 
 # ==============================
-# FILE PATHS
+# PATHS
 # ==============================
 
 base_dir = r"C:\Users\97254\Desktop\twitter-scraper-author-data-main\Date_Collection_Oil_Prices\Data_Collection_Oil\app-back\OilDatafiles"
 
-tweets_file = os.path.join(base_dir, "combined_tweets.csv")
-oil_file = os.path.join(base_dir, "_WTI - חוזים עתידיים על נפט גולמי - נתונים היסטוריים.csv")
-gas_file = os.path.join(base_dir, "stationprice2025.xlsx")   # add 2026 later if needed
+timelines_dir = os.path.join(base_dir, "Data", "Users_Timelines")
+
+combined_tweets_file = os.path.join(base_dir, "combined_tweets.csv")
+
+oil_file = os.path.join(
+    base_dir,
+    "_WTI - חוזים עתידיים על נפט גולמי - נתונים היסטוריים.csv"
+)
+
 output_file = os.path.join(base_dir, "tweets_oil_gas_combined.csv")
 
+
 # ==============================
-# HELPER
+# HELPERS
 # ==============================
 
-def clean_numeric(val):
+def normalize_change_percent(val):
     if pd.isna(val):
         return None
-    if isinstance(val, (int, float)):
-        return float(val)
 
-    s = str(val).replace(",", "").replace("%", "").strip()
+    s = str(val).strip()
 
-    multiplier = 1
-    if s.endswith("K"):
-        multiplier = 1_000
-        s = s[:-1]
-    elif s.endswith("M"):
-        multiplier = 1_000_000
-        s = s[:-1]
+    if s.startswith("+"):
+        s = s[1:]
 
-    try:
-        return float(s) * multiplier
-    except:
-        return None
+    return s
+
+
+# ==============================
+# BUILD combined_tweets.csv
+# ==============================
+
+all_tweets = []
+
+for filename in os.listdir(timelines_dir):
+    if filename.endswith(".csv"):
+        file_path = os.path.join(timelines_dir, filename)
+        username = filename.replace(".csv", "")
+
+        try:
+            if os.path.getsize(file_path) == 0:
+                print(f"Skipping empty file: {filename}")
+                continue
+
+            df = pd.read_csv(file_path, encoding="utf-8-sig")
+
+        except pd.errors.EmptyDataError:
+            print(f"Skipping empty CSV: {filename}")
+            continue
+
+        if df.empty:
+            print(f"Skipping empty dataframe: {filename}")
+            continue
+
+        if "created_at" not in df.columns or "text" not in df.columns:
+            print(f"Skipping invalid file: {filename}")
+            continue
+
+        df = df[["created_at", "text"]].copy()
+        df["publisher"] = username
+
+        df = df.dropna(subset=["created_at", "text"])
+
+        all_tweets.append(df)
+
+
+if all_tweets:
+    combined_tweets = pd.concat(all_tweets, ignore_index=True)
+
+    combined_tweets = combined_tweets.drop_duplicates(
+        subset=["created_at", "text", "publisher"]
+    )
+
+    combined_tweets.to_csv(
+        combined_tweets_file,
+        index=False,
+        encoding="utf-8-sig"
+    )
+
+    print("Updated combined_tweets.csv")
+    print("Rows:", len(combined_tweets))
+
+else:
+    combined_tweets = pd.DataFrame(columns=["created_at", "text", "publisher"])
+
+    combined_tweets.to_csv(
+        combined_tweets_file,
+        index=False,
+        encoding="utf-8-sig"
+    )
+
+    print("No tweet files found. Created empty combined_tweets.csv")
+
 
 # ==============================
 # LOAD TWEETS
 # ==============================
 
-tweets = pd.read_csv(tweets_file, encoding="utf-8-sig")
-tweets = tweets[["created_at", "text", "publisher"]].copy()
+tweets = pd.read_csv(combined_tweets_file, encoding="utf-8-sig")
 
-tweets = tweets.rename(columns={"created_at": "date"})
-tweets["date"] = pd.to_datetime(tweets["date"], errors="coerce")
-tweets = tweets.dropna(subset=["date"])
-tweets["date"] = tweets["date"].dt.strftime("%Y-%m-%d")
+if not tweets.empty:
+    tweets = tweets[["created_at", "text", "publisher"]].copy()
+
+    tweets["date"] = pd.to_datetime(
+        tweets["created_at"],
+        errors="coerce",
+        utc=True
+    ).dt.strftime("%Y-%m-%d")
+
+    tweets = tweets.dropna(subset=["date"])
+
+    tweets = tweets[["date", "text", "publisher"]]
+
+else:
+    tweets = pd.DataFrame(columns=["date", "text", "publisher"])
+
 
 # ==============================
 # LOAD OIL
@@ -62,53 +137,35 @@ oil = oil.rename(columns={
     "גבוה": "oil_high",
     "נמוך": "oil_low",
     "נפח": "oil_volume",
-    "שינוי %": "oil_change_percent"
+    "שינוי %": "oil_change_percent",
+    "שינוי": "oil_change_percent"
 })
 
-oil["date"] = pd.to_datetime(oil["date"], dayfirst=True, errors="coerce")
+needed_oil_cols = [
+    "date",
+    "oil_price",
+    "oil_open",
+    "oil_high",
+    "oil_low",
+    "oil_volume",
+    "oil_change_percent"
+]
+
+oil = oil[needed_oil_cols].copy()
+
+oil["date"] = pd.to_datetime(
+    oil["date"],
+    dayfirst=True,
+    errors="coerce"
+).dt.strftime("%Y-%m-%d")
+
 oil = oil.dropna(subset=["date"])
+
+oil["oil_change_percent"] = oil["oil_change_percent"].apply(normalize_change_percent)
+
+oil = oil.drop_duplicates(subset=["date"])
 oil = oil.sort_values("date")
 
-for col in ["oil_price", "oil_open", "oil_high", "oil_low", "oil_volume", "oil_change_percent"]:
-    if col in oil.columns:
-        oil[col] = oil[col].apply(clean_numeric)
-
-# add yesterday oil price
-oil["oil_price_yesterday"] = oil["oil_price"].shift(1)
-
-# date back to string for clean merge
-oil["date"] = oil["date"].dt.strftime("%Y-%m-%d")
-
-# ==============================
-# LOAD GAS (HEADERS AT LINE 6)
-# ==============================
-
-gas = pd.read_excel(gas_file, skiprows=5)
-
-print("Gas columns:", gas.columns.tolist())
-print(gas.head())
-
-gas = gas.rename(columns={
-    "תאריך": "date",
-    "בנזין 95 אוקטן נטול עופרת": "gas_price",
-    "תוספת בעד שירות מלא": "full_service_extra",
-    "תוספת שירות מלא": "full_service_extra"
-})
-
-if "date" not in gas.columns:
-    raise ValueError(f"Gas date column not found. Columns: {gas.columns.tolist()}")
-
-if "gas_price" not in gas.columns:
-    raise ValueError(f"Gas price column not found. Columns: {gas.columns.tolist()}")
-
-gas["date"] = pd.to_datetime(gas["date"], dayfirst=True, errors="coerce")
-gas = gas.dropna(subset=["date"])
-
-gas["gas_price"] = gas["gas_price"].apply(clean_numeric)
-
-# keep only one row per month
-gas["month_key"] = gas["date"].dt.to_period("M")
-gas = gas.sort_values("date").drop_duplicates(subset=["month_key"])
 
 # ==============================
 # MERGE TWEETS + OIL
@@ -116,60 +173,30 @@ gas = gas.sort_values("date").drop_duplicates(subset=["month_key"])
 
 tweet_rows = tweets.merge(oil, on="date", how="left")
 
-# create EMPTY rows for oil dates that have no tweet
 dates_with_tweets = set(tweets["date"])
+
 oil_no_tweet = oil[~oil["date"].isin(dates_with_tweets)].copy()
 oil_no_tweet["text"] = "EMPTY"
 oil_no_tweet["publisher"] = "EMPTY"
 
-# align columns
-tweet_rows["date"] = pd.to_datetime(tweet_rows["date"], errors="coerce")
-oil_no_tweet["date"] = pd.to_datetime(oil_no_tweet["date"], errors="coerce")
-
-# ==============================
-# ADD GAS PRICE BY MONTH
-# ==============================
-
-tweet_rows["month_key"] = tweet_rows["date"].dt.to_period("M")
-oil_no_tweet["month_key"] = oil_no_tweet["date"].dt.to_period("M")
-
-tweet_rows = tweet_rows.merge(
-    gas[["month_key", "gas_price"]],
-    on="month_key",
-    how="left"
-)
-
-oil_no_tweet = oil_no_tweet.merge(
-    gas[["month_key", "gas_price"]],
-    on="month_key",
-    how="left"
-)
-
-# ==============================
-# COMBINE FINAL
-# ==============================
-
 final_df = pd.concat([tweet_rows, oil_no_tweet], ignore_index=True)
 
-final_df["date"] = final_df["date"].dt.strftime("%Y-%m-%d")
-
-# reorder nicely
-wanted_cols = [
-    "date",
-    "text",
-    "publisher",
-    "oil_price",
-    "oil_price_yesterday",
-    "oil_open",
-    "oil_high",
-    "oil_low",
-    "oil_volume",
-    "oil_change_percent",
-    "gas_price"
+final_df = final_df[
+    [
+        "date",
+        "text",
+        "publisher",
+        "oil_price",
+        "oil_open",
+        "oil_high",
+        "oil_low",
+        "oil_volume",
+        "oil_change_percent"
+    ]
 ]
 
-final_df = final_df[wanted_cols]
 final_df = final_df.sort_values(["date", "publisher", "text"])
+
 
 # ==============================
 # SAVE
@@ -179,5 +206,6 @@ final_df.to_csv(output_file, index=False, encoding="utf-8-sig")
 
 print("Saved combined file to:")
 print(output_file)
+
 print("\nSample:")
 print(final_df.head(20))
