@@ -564,3 +564,53 @@ print("\n==============================")
 print("TOP 40 IMPORTANT FEATURES")
 print("==============================")
 print(importances.head(40).to_string(index=False))
+# ==============================
+# SAVE BEST MODEL + ARTIFACTS
+# ==============================
+
+import joblib
+import os
+
+print("\n==============================")
+print("SAVING BEST MODEL AND ARTIFACTS")
+print("==============================")
+
+BASE_DIR = r"C:\Users\97254\Desktop\twitter-scraper-author-data-main\Date_Collection_Oil_Prices\Data_Collection_Oil\app-back\OilDatafiles"
+
+MODEL_FILE = os.path.join(BASE_DIR, "oil_model.pkl")
+TFIDF_FILE = os.path.join(BASE_DIR, "tfidf.pkl")
+FEATURE_COLUMNS_FILE = os.path.join(BASE_DIR, "feature_columns.pkl")
+BIN_TABLE_FILE = os.path.join(BASE_DIR, "bin_table.pkl")
+TRAINING_RESULTS_FILE = os.path.join(BASE_DIR, "training_results.csv")
+FEATURE_IMPORTANCE_FILE = os.path.join(BASE_DIR, "feature_importance.csv")
+
+# Save the best trained model
+joblib.dump(best_model, MODEL_FILE)
+
+# Save the fitted TF-IDF object
+joblib.dump(tfidf, TFIDF_FILE)
+
+# Save exact feature column order
+joblib.dump(X_df.columns.tolist(), FEATURE_COLUMNS_FILE)
+
+# Save price bin table
+joblib.dump(bin_table, BIN_TABLE_FILE)
+
+# Optional but useful: save training comparison and feature importance
+results_df.to_csv(TRAINING_RESULTS_FILE, index=False, encoding="utf-8-sig")
+importances.to_csv(FEATURE_IMPORTANCE_FILE, index=False, encoding="utf-8-sig")
+
+print("Saved successfully:")
+print(f"- {MODEL_FILE}")
+print(f"- {TFIDF_FILE}")
+print(f"- {FEATURE_COLUMNS_FILE}")
+print(f"- {BIN_TABLE_FILE}")
+print(f"- {TRAINING_RESULTS_FILE}")
+print(f"- {FEATURE_IMPORTANCE_FILE}")
+
+print("\nBest model saved:")
+print(f"Model: {best_model_name}")
+print(f"Split: {best_split}")
+print(f"Accuracy: {best['accuracy']:.4f}")
+print(f"F1 macro: {best['f1_macro']:.4f}")
+print(f"F1 weighted: {best['f1_weighted']:.4f}")
