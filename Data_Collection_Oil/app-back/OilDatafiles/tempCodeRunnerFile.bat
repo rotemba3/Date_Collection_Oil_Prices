@@ -45,8 +45,8 @@ if errorlevel 1 (
 
 echo.
 echo ===== STEP 5: Train + Predict tomorrow =====
-python "OilDatafiles\Scraper\predict_tomorrow.py"
 
+python "Scraper\predict_tomorrow.py"
 if errorlevel 1 (
     echo ERROR: prediction failed
     pause

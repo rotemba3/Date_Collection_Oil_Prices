@@ -2,7 +2,7 @@
 import time
 import shutil
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -14,8 +14,11 @@ from SearchScrapper import SearchScrapper
 
 BASE_DIR = r"C:\Users\97254\Desktop\twitter-scraper-author-data-main\Date_Collection_Oil_Prices\Data_Collection_Oil\app-back\OilDatafiles"
 
-INPUT_FILE = os.path.join(BASE_DIR, "Scraper", "twitter_usernames_for_scraper.xlsx")
-OUT_DIR = os.path.join(BASE_DIR, "Data", "Users_Timelines")
+INPUT_FILE  = os.path.join(BASE_DIR, "Scraper", "twitter_usernames_for_scraper.xlsx")
+OUT_DIR     = os.path.join(BASE_DIR, "Data", "Users_Timelines")
+
+# Combined tweets file — used to find last scraped date
+COMBINED_TWEETS_FILE = os.path.join(BASE_DIR, "combined_tweets.csv")
 
 OIL_URL = "https://il.investing.com/commodities/crude-oil-historical-data"
 
@@ -26,6 +29,51 @@ OIL_TARGET_PATH = os.path.join(
     "_WTI - חוזים עתידיים על נפט גולמי - נתונים היסטוריים.csv"
 )
 
+# Absolute earliest date to ever scrape from (historical backfill start)
+SCRAPE_HISTORY_START = "2025-12-01"
+
+# Set to True to ignore existing data and re-scrape everything from SCRAPE_HISTORY_START.
+# Set back to False after the full rescrape is done so daily runs only fetch new tweets.
+FORCE_FULL_RESCRAPE = True
+
+
+# ==============================
+# DETERMINE SCRAPE START DATE
+# ==============================
+
+def get_scrape_start_date():
+    """
+    Returns the date to scrape FROM.
+    - If FORCE_FULL_RESCRAPE is True, always start from SCRAPE_HISTORY_START.
+    - Otherwise use (last scraped date - 2 days) for incremental daily updates.
+    """
+    if FORCE_FULL_RESCRAPE:
+        print(f"FORCE_FULL_RESCRAPE=False → scraping from: {SCRAPE_HISTORY_START}")
+        return SCRAPE_HISTORY_START
+
+    if os.path.exists(COMBINED_TWEETS_FILE):
+        try:
+            existing = pd.read_csv(COMBINED_TWEETS_FILE, encoding="utf-8-sig")
+
+            if not existing.empty and "created_at" in existing.columns:
+                existing["_date"] = pd.to_datetime(
+                    existing["created_at"], errors="coerce", utc=True
+                )
+                last_date = existing["_date"].dropna().max()
+
+                if pd.notna(last_date):
+                    # Go back 2 days for overlap safety
+                    start = (last_date - timedelta(days=2)).strftime("%Y-%m-%d")
+                    print(f"Last scraped date: {last_date.date()}")
+                    print(f"Scraping from:     {start}  (2-day overlap)")
+                    return start
+
+        except Exception as e:
+            print(f"Could not read combined_tweets.csv: {e}")
+
+    print(f"No existing data found. Scraping from history start: {SCRAPE_HISTORY_START}")
+    return SCRAPE_HISTORY_START
+
 
 # ==============================
 # TWITTER FUNCTIONS
@@ -35,7 +83,7 @@ def load_usernames(input_path=INPUT_FILE, column="Twitter_username", limit=None)
     df = pd.read_excel(input_path)
 
     if column not in df.columns:
-        raise ValueError(f"Column '{column}' not found. Available columns: {list(df.columns)}")
+        raise ValueError(f"Column '{column}' not found. Available: {list(df.columns)}")
 
     users = (
         df[column]
@@ -68,31 +116,43 @@ def scrape_user(driver, username, start_date, end_date, max_tweets=5000):
     )
 
     rows = []
-
     for t in scraped:
         rows.append({
-            "tweet_id": getattr(t, "ID", None),
+            "tweet_id":   getattr(t, "ID", None),
             "created_at": getattr(t, "timestamp", None),
-            "text": getattr(t, "content", None),
-            "replies": getattr(t, "comments", None),
-            "retweets": getattr(t, "retweets", None),
-            "likes": getattr(t, "likes", None),
+            "text":       getattr(t, "content", None),
+            "replies":    getattr(t, "comments", None),
+            "retweets":   getattr(t, "retweets", None),
+            "likes":      getattr(t, "likes", None),
         })
 
     return rows
 
 
 def save_user_timeline(out_dir, username, rows):
+    """
+    APPEND new tweets to existing user file instead of overwriting.
+    Deduplicates by (created_at, text).
+    """
     os.makedirs(out_dir, exist_ok=True)
-
     out_path = os.path.join(out_dir, f"{username}.csv")
 
-    df = pd.DataFrame(
+    new_df = pd.DataFrame(
         rows,
         columns=["tweet_id", "created_at", "text", "replies", "retweets", "likes"]
     )
 
-    df.to_csv(out_path, index=False, encoding="utf-8-sig")
+    if os.path.exists(out_path):
+        try:
+            existing_df = pd.read_csv(out_path, encoding="utf-8-sig")
+            combined    = pd.concat([existing_df, new_df], ignore_index=True)
+            combined    = combined.drop_duplicates(subset=["created_at", "text"])
+        except Exception:
+            combined = new_df
+    else:
+        combined = new_df
+
+    combined.to_csv(out_path, index=False, encoding="utf-8-sig")
     return out_path
 
 
@@ -101,8 +161,10 @@ def scrape_twitter_users(driver):
     print("Scraping Twitter/X users")
     print("==============================")
 
-    start_date = "2025-12-01"
-    end_date = datetime.today().strftime("%Y-%m-%d")
+    start_date = get_scrape_start_date()
+    end_date   = datetime.today().strftime("%Y-%m-%d")
+
+    print(f"Date window: {start_date} → {end_date}")
 
     users = load_usernames()
 
@@ -120,7 +182,7 @@ def scrape_twitter_users(driver):
 
             out_path = save_user_timeline(OUT_DIR, user, rows)
 
-            print(f"Saved {len(rows)} tweets -> {out_path}")
+            print(f"Saved {len(rows)} tweets → {out_path}")
 
             time.sleep(2)
 
@@ -137,29 +199,26 @@ def close_popups(driver):
 
     try:
         buttons = driver.find_elements(By.TAG_NAME, "button")
-
         for btn in buttons:
             text = btn.text.strip()
-
             if text in ["Accept", "Agree", "I Agree", "קבל", "קבל הכל", "מסכים", "אישור"]:
                 driver.execute_script("arguments[0].click();", btn)
                 print("Clicked cookie button")
                 time.sleep(2)
                 break
-
     except Exception as e:
         print("Cookie close failed:", e)
 
     try:
-        close_buttons = driver.find_elements(By.XPATH, "//*[@data-test='close-button']")
-
+        close_buttons = driver.find_elements(
+            By.XPATH, "//*[@data-test='close-button']"
+        )
         for btn in close_buttons:
             if btn.is_displayed():
                 driver.execute_script("arguments[0].click();", btn)
                 print("Closed signup/login popup")
                 time.sleep(2)
                 break
-
     except Exception as e:
         print("Popup close failed:", e)
 
@@ -184,11 +243,11 @@ def click_oil_download(driver):
                 (By.XPATH, "//span[contains(text(), 'הורדה')]/parent::div")
             )
         )
-
-        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", download_button)
+        driver.execute_script(
+            "arguments[0].scrollIntoView({block: 'center'});", download_button
+        )
         time.sleep(1)
         driver.execute_script("arguments[0].click();", download_button)
-
         print("Clicked הורדה")
         return True
 
@@ -223,19 +282,14 @@ def wait_for_download_and_copy(timeout=120):
 
         if csv_files:
             latest_file = max(csv_files, key=os.path.getctime)
-
-            print("Latest CSV found:")
-            print(latest_file)
+            print("Latest CSV found:", latest_file)
 
             if os.path.exists(OIL_TARGET_PATH):
                 os.remove(OIL_TARGET_PATH)
-                print("Removed old oil CSV from project.")
+                print("Removed old oil CSV.")
 
             shutil.copy(latest_file, OIL_TARGET_PATH)
-
-            print("Copied oil CSV to project:")
-            print(OIL_TARGET_PATH)
-
+            print("Copied oil CSV to project:", OIL_TARGET_PATH)
             return True
 
         time.sleep(1)
@@ -246,13 +300,11 @@ def wait_for_download_and_copy(timeout=120):
 
 def download_oil_csv(driver):
     ok = click_oil_download(driver)
-
     if not ok:
         print("Oil download click failed.")
         return False
 
     copied = wait_for_download_and_copy(timeout=120)
-
     if not copied:
         print("Oil CSV copy failed.")
         return False
@@ -268,10 +320,7 @@ def main():
     driver = setup_web_driver()
 
     try:
-        # 1. Download oil CSV from Investing and copy from Downloads to project
-        download_oil_csv(driver)
-
-        # 2. Scrape Twitter/X users
+       # download_oil_csv(driver)
         scrape_twitter_users(driver)
 
     finally:

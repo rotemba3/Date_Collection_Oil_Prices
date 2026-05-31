@@ -14,7 +14,7 @@ csv_file = r"C:\Users\97254\Desktop\twitter-scraper-author-data-main\Date_Collec
 
 client = MongoClient("mongodb+srv://rotemba3_db_user:12345@dataoilscollect.bje8esi.mongodb.net/")
 
-db = client["DataCollectionOil"]
+db         = client["DataCollectionOil"]
 collection = db["modeltrainig"]
 
 # ==============================
@@ -30,51 +30,65 @@ df = df.where(pd.notnull(df), None)
 
 def clean_record(record):
     cleaned = {}
-
     for k, v in record.items():
         if isinstance(v, float) and math.isnan(v):
             cleaned[k] = None
         else:
             cleaned[k] = v
-
     return cleaned
-
 
 records = [clean_record(r) for r in df.to_dict(orient="records")]
 
 # ==============================
-# INSERT NEW DATES + UPDATE EXISTING PRICES
+# INSERT / UPDATE LOGIC
+# Each row is uniquely identified by (date + publisher + text).
+# - New unique rows → insert
+# - Existing rows → update price fields only
+# This way multiple tweets on the same date are all stored separately.
 # ==============================
 
 inserted_count = 0
-updated_count = 0
-skipped_count = 0
+updated_count  = 0
+skipped_count  = 0
 
 price_fields = [
     "oil_price",
+    "oil_open",
+    "oil_high",
+    "oil_low",
+    "oil_volume",
+    "oil_change_percent",
     "oil_price_yesterday",
     "gas_price"
 ]
 
 for record in records:
-    record_date = record.get("date")
+    record_date      = record.get("date")
+    record_publisher = record.get("publisher")
+    record_text      = record.get("text")
 
     if record_date is None:
         skipped_count += 1
         continue
 
-    existing = collection.find_one({"date": record_date})
+    # Unique key: date + publisher + text
+    existing = collection.find_one({
+        "date":      record_date,
+        "publisher": record_publisher,
+        "text":      record_text
+    })
 
     if existing:
-        update_fields = {}
-
-        for field in price_fields:
-            if field in record:
-                update_fields[field] = record.get(field)
+        # Row already exists — only update price fields
+        update_fields = {
+            field: record.get(field)
+            for field in price_fields
+            if field in record
+        }
 
         if update_fields:
-            collection.update_many(
-                {"date": record_date},
+            collection.update_one(
+                {"_id": existing["_id"]},
                 {"$set": update_fields}
             )
             updated_count += 1
@@ -82,6 +96,7 @@ for record in records:
             skipped_count += 1
 
     else:
+        # New row — insert it
         collection.insert_one(record)
         inserted_count += 1
 
@@ -90,9 +105,8 @@ for record in records:
 # ==============================
 
 print(f"Inserted new records: {inserted_count}")
-print(f"Updated existing date records: {updated_count}")
+print(f"Updated existing records: {updated_count}")
 print(f"Skipped records: {skipped_count}")
-
-print("Total documents:", collection.count_documents({}))
+print(f"Total documents in MongoDB: {collection.count_documents({})}")
 print("Sample:")
 print(collection.find_one())

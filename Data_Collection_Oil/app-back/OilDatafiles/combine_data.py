@@ -7,16 +7,10 @@ import pandas as pd
 
 base_dir = r"C:\Users\97254\Desktop\twitter-scraper-author-data-main\Date_Collection_Oil_Prices\Data_Collection_Oil\app-back\OilDatafiles"
 
-timelines_dir = os.path.join(base_dir, "Data", "Users_Timelines")
-
+timelines_dir        = os.path.join(base_dir, "Data", "Users_Timelines")
 combined_tweets_file = os.path.join(base_dir, "combined_tweets.csv")
-
-oil_file = os.path.join(
-    base_dir,
-    "_WTI - חוזים עתידיים על נפט גולמי - נתונים היסטוריים.csv"
-)
-
-output_file = os.path.join(base_dir, "tweets_oil_gas_combined.csv")
+oil_file             = os.path.join(base_dir, "_WTI - חוזים עתידיים על נפט גולמי - נתונים היסטוריים.csv")
+output_file          = os.path.join(base_dir, "tweets_oil_gas_combined.csv")
 
 
 # ==============================
@@ -26,132 +20,143 @@ output_file = os.path.join(base_dir, "tweets_oil_gas_combined.csv")
 def normalize_change_percent(val):
     if pd.isna(val):
         return None
-
     s = str(val).strip()
-
     if s.startswith("+"):
         s = s[1:]
-
     return s
 
 
 # ==============================
-# BUILD combined_tweets.csv
+# LOAD EXISTING combined_tweets.csv (if any)
 # ==============================
 
-all_tweets = []
+if os.path.exists(combined_tweets_file):
+    existing_tweets = pd.read_csv(combined_tweets_file, encoding="utf-8-sig")
+    print(f"Loaded existing combined_tweets.csv: {len(existing_tweets)} rows")
+else:
+    existing_tweets = pd.DataFrame(columns=["created_at", "text", "publisher"])
+    print("No existing combined_tweets.csv — starting fresh.")
+
+
+# ==============================
+# LOAD NEW TWEETS FROM Users_Timelines
+# ==============================
+
+new_tweets = []
 
 for filename in os.listdir(timelines_dir):
-    if filename.endswith(".csv"):
-        file_path = os.path.join(timelines_dir, filename)
-        username = filename.replace(".csv", "")
+    if not filename.endswith(".csv"):
+        continue
 
-        try:
-            if os.path.getsize(file_path) == 0:
-                print(f"Skipping empty file: {filename}")
-                continue
+    file_path = os.path.join(timelines_dir, filename)
+    username  = filename.replace(".csv", "")
 
-            df = pd.read_csv(file_path, encoding="utf-8-sig")
-
-        except pd.errors.EmptyDataError:
-            print(f"Skipping empty CSV: {filename}")
+    try:
+        if os.path.getsize(file_path) == 0:
+            print(f"Skipping empty file: {filename}")
             continue
 
-        if df.empty:
-            print(f"Skipping empty dataframe: {filename}")
-            continue
+        df = pd.read_csv(file_path, encoding="utf-8-sig")
 
-        if "created_at" not in df.columns or "text" not in df.columns:
-            print(f"Skipping invalid file: {filename}")
-            continue
+    except pd.errors.EmptyDataError:
+        print(f"Skipping empty CSV: {filename}")
+        continue
 
-        df = df[["created_at", "text"]].copy()
-        df["publisher"] = username
+    if df.empty:
+        print(f"Skipping empty dataframe: {filename}")
+        continue
 
-        df = df.dropna(subset=["created_at", "text"])
+    if "created_at" not in df.columns or "text" not in df.columns:
+        print(f"Skipping invalid file (missing columns): {filename}")
+        continue
 
-        all_tweets.append(df)
+    df = df[["created_at", "text"]].copy()
+    df["publisher"] = username
+    df = df.dropna(subset=["created_at", "text"])
+    new_tweets.append(df)
 
-
-if all_tweets:
-    combined_tweets = pd.concat(all_tweets, ignore_index=True)
-
-    combined_tweets = combined_tweets.drop_duplicates(
-        subset=["created_at", "text", "publisher"]
-    )
-
-    combined_tweets.to_csv(
-        combined_tweets_file,
-        index=False,
-        encoding="utf-8-sig"
-    )
-
-    print("Updated combined_tweets.csv")
-    print("Rows:", len(combined_tweets))
-
+if new_tweets:
+    new_tweets_df = pd.concat(new_tweets, ignore_index=True)
+    print(f"Scraped tweets this run: {len(new_tweets_df)}")
 else:
-    combined_tweets = pd.DataFrame(columns=["created_at", "text", "publisher"])
-
-    combined_tweets.to_csv(
-        combined_tweets_file,
-        index=False,
-        encoding="utf-8-sig"
-    )
-
-    print("No tweet files found. Created empty combined_tweets.csv")
+    new_tweets_df = pd.DataFrame(columns=["created_at", "text", "publisher"])
+    print("No new tweets scraped this run.")
 
 
 # ==============================
-# LOAD TWEETS
+# MERGE OLD + NEW TWEETS, DEDUPLICATE
 # ==============================
 
-tweets = pd.read_csv(combined_tweets_file, encoding="utf-8-sig")
+combined_tweets = pd.concat(
+    [existing_tweets, new_tweets_df],
+    ignore_index=True
+)
 
-if not tweets.empty:
-    tweets = tweets[["created_at", "text", "publisher"]].copy()
+before_dedup = len(combined_tweets)
 
-    tweets["date"] = pd.to_datetime(
-        tweets["created_at"],
-        errors="coerce",
-        utc=True
-    ).dt.strftime("%Y-%m-%d")
+combined_tweets = combined_tweets.drop_duplicates(
+    subset=["created_at", "text", "publisher"]
+)
 
-    tweets = tweets.dropna(subset=["date"])
+print(f"Deduplication: {before_dedup} → {len(combined_tweets)} rows")
 
-    tweets = tweets[["date", "text", "publisher"]]
+combined_tweets.to_csv(combined_tweets_file, index=False, encoding="utf-8-sig")
+print(f"Saved combined_tweets.csv: {len(combined_tweets)} total rows")
 
+
+# ==============================
+# PARSE DATE FROM combined_tweets
+# ==============================
+
+tweets = combined_tweets[["created_at", "text", "publisher"]].copy()
+
+tweets["date"] = pd.to_datetime(
+    tweets["created_at"],
+    errors="coerce",
+    utc=True
+).dt.strftime("%Y-%m-%d")
+
+tweets = tweets.dropna(subset=["date"])
+tweets = tweets[["date", "text", "publisher"]]
+
+
+# ==============================
+# LOAD EXISTING output CSV (tweets_oil_gas_combined.csv)
+# so we never lose historical rows even if oil CSV only has recent data
+# ==============================
+
+if os.path.exists(output_file):
+    existing_output = pd.read_csv(output_file, encoding="utf-8-sig")
+    print(f"Loaded existing tweets_oil_gas_combined.csv: {len(existing_output)} rows")
 else:
-    tweets = pd.DataFrame(columns=["date", "text", "publisher"])
+    existing_output = pd.DataFrame()
+    print("No existing tweets_oil_gas_combined.csv — will create fresh.")
 
 
 # ==============================
-# LOAD OIL
+# LOAD OIL CSV
 # ==============================
 
 oil = pd.read_csv(oil_file, encoding="utf-8-sig")
 
 oil = oil.rename(columns={
-    "תאריך": "date",
-    "שער": "oil_price",
-    "פתיחה": "oil_open",
-    "גבוה": "oil_high",
-    "נמוך": "oil_low",
-    "נפח": "oil_volume",
+    "תאריך":  "date",
+    "שער":    "oil_price",
+    "פתיחה":  "oil_open",
+    "גבוה":   "oil_high",
+    "נמוך":   "oil_low",
+    "נפח":    "oil_volume",
     "שינוי %": "oil_change_percent",
-    "שינוי": "oil_change_percent"
+    "שינוי":  "oil_change_percent"
 })
 
 needed_oil_cols = [
-    "date",
-    "oil_price",
-    "oil_open",
-    "oil_high",
-    "oil_low",
-    "oil_volume",
-    "oil_change_percent"
+    "date", "oil_price", "oil_open", "oil_high",
+    "oil_low", "oil_volume", "oil_change_percent"
 ]
 
-oil = oil[needed_oil_cols].copy()
+# Keep only columns that actually exist in this CSV
+oil = oil[[c for c in needed_oil_cols if c in oil.columns]].copy()
 
 oil["date"] = pd.to_datetime(
     oil["date"],
@@ -160,52 +165,67 @@ oil["date"] = pd.to_datetime(
 ).dt.strftime("%Y-%m-%d")
 
 oil = oil.dropna(subset=["date"])
-
 oil["oil_change_percent"] = oil["oil_change_percent"].apply(normalize_change_percent)
-
 oil = oil.drop_duplicates(subset=["date"])
 oil = oil.sort_values("date")
 
+print(f"Oil CSV date range: {oil['date'].min()} → {oil['date'].max()}")
+
 
 # ==============================
-# MERGE TWEETS + OIL
+# BUILD NEW ROWS FROM TWEETS + OIL
 # ==============================
 
 tweet_rows = tweets.merge(oil, on="date", how="left")
 
 dates_with_tweets = set(tweets["date"])
-
 oil_no_tweet = oil[~oil["date"].isin(dates_with_tweets)].copy()
-oil_no_tweet["text"] = "EMPTY"
+oil_no_tweet["text"]      = "EMPTY"
 oil_no_tweet["publisher"] = "EMPTY"
 
-final_df = pd.concat([tweet_rows, oil_no_tweet], ignore_index=True)
+new_output = pd.concat([tweet_rows, oil_no_tweet], ignore_index=True)
 
-final_df = final_df[
-    [
-        "date",
-        "text",
-        "publisher",
-        "oil_price",
-        "oil_open",
-        "oil_high",
-        "oil_low",
-        "oil_volume",
-        "oil_change_percent"
-    ]
+output_cols = [
+    "date", "text", "publisher",
+    "oil_price", "oil_open", "oil_high",
+    "oil_low", "oil_volume", "oil_change_percent"
 ]
 
-final_df = final_df.sort_values(["date", "publisher", "text"])
+# Only keep columns that exist
+new_output = new_output[[c for c in output_cols if c in new_output.columns]]
+
+
+# ==============================
+# MERGE WITH EXISTING OUTPUT — keep all historical rows
+# New rows overwrite existing rows for the same (date, publisher, text) key
+# ==============================
+
+if not existing_output.empty:
+    combined_output = pd.concat(
+        [existing_output, new_output],
+        ignore_index=True
+    )
+    # Deduplicate: prefer the newer row (tail) for same date+publisher+text
+    combined_output = combined_output.drop_duplicates(
+        subset=["date", "text", "publisher"],
+        keep="last"
+    )
+else:
+    combined_output = new_output
+
+combined_output = combined_output.sort_values(["date", "publisher", "text"])
 
 
 # ==============================
 # SAVE
 # ==============================
 
-final_df.to_csv(output_file, index=False, encoding="utf-8-sig")
+combined_output.to_csv(output_file, index=False, encoding="utf-8-sig")
 
-print("Saved combined file to:")
-print(output_file)
+print(f"\nSaved tweets_oil_gas_combined.csv")
+print(f"Total rows: {len(combined_output)}")
+print(f"Date range: {combined_output['date'].min()} → {combined_output['date'].max()}")
+print(f"Unique dates: {combined_output['date'].nunique()}")
 
-print("\nSample:")
-print(final_df.head(20))
+print("\nSample (last 5 rows):")
+print(combined_output.tail(5).to_string(index=False))

@@ -1,7 +1,6 @@
 import os
 import re
 import joblib
-import subprocess
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
@@ -10,48 +9,24 @@ from pymongo import MongoClient
 
 
 # ==============================
-# PATHS
+# CONFIG
 # ==============================
 
 BASE_DIR = r"C:\Users\97254\Desktop\twitter-scraper-author-data-main\Date_Collection_Oil_Prices\Data_Collection_Oil\app-back\OilDatafiles"
 
-TRAIN_SCRIPT         = os.path.join(BASE_DIR, "Trainmodel.py")
+DATA_FILE            = os.path.join(BASE_DIR, "tweets_oil_gas_combined.csv")
 
 MODEL_FILE           = os.path.join(BASE_DIR, "oil_model.pkl")
 TFIDF_FILE           = os.path.join(BASE_DIR, "tfidf.pkl")
 FEATURE_COLUMNS_FILE = os.path.join(BASE_DIR, "feature_columns.pkl")
 BIN_EDGES_FILE       = os.path.join(BASE_DIR, "bin_edges.pkl")   # <-- changed from bin_table.pkl
 
-
-# ==============================
-# MONGODB
-# ==============================
-
-MONGO_URI              = "mongodb+srv://rotemba3_db_user:12345@dataoilscollect.bje8esi.mongodb.net/"
-DB_NAME                = "DataCollectionOil"
-TRAINING_COLLECTION    = "modeltrainig"   # note: typo matches existing collection name
+MONGO_URI            = "mongodb+srv://rotemba3_db_user:12345@dataoilscollect.bje8esi.mongodb.net/"
+DB_NAME              = "DataCollectionOil"
 PREDICTIONS_COLLECTION = "oil_predictions"
 
-
-# ==============================
-# OPTIONAL RETRAIN
-# ==============================
-
-def retrain_model():
-    print("\n==============================")
-    print("Retraining model")
-    print("==============================")
-
-    result = subprocess.run(
-        ["python", TRAIN_SCRIPT],
-        cwd=BASE_DIR,
-        text=True
-    )
-
-    if result.returncode != 0:
-        raise RuntimeError("Trainmodel.py failed. Cannot predict.")
-
-    print("Model retrained successfully.")
+START_DATE = "2026-05-01"
+END_DATE   = "2026-05-31"
 
 
 # ==============================
@@ -213,14 +188,14 @@ def count_words(text, words):
 
 
 # ==============================
-# BIN HELPERS (uses bin_edges array, not bin_table)
+# BIN HELPERS  (uses bin_edges array, not bin_table)
 # ==============================
 
 def get_bin_for_price(price, bin_edges):
     """
     bin_edges: numpy array from pd.qcut(..., retbins=True)
     bin_edges[0] = -inf, bin_edges[-1] = +inf
-    Returns (bin_index int, range_string) or (None, None)
+    Returns (bin_index 0-based int, range_string) or (None, None)
     """
     price = float(price)
     for i in range(len(bin_edges) - 1):
@@ -245,7 +220,7 @@ def bin_label(bin_index, bin_edges):
 
 
 # ==============================
-# DAILY FEATURES
+# BUILD DAILY FEATURES
 # ==============================
 
 def build_daily_features(df, feature_columns):
@@ -268,6 +243,7 @@ def build_daily_features(df, feature_columns):
     for col in feature_columns:
         if col.startswith("last3_") and col.endswith("_count"):
             name = col.replace("last3_", "").replace("_count", "")
+            # also strip _topic suffix if present
             name_clean = name.replace("_topic", "")
             if name_clean not in exclude_names and name not in exclude_names:
                 publisher_names.add(name)
@@ -326,15 +302,18 @@ def build_daily_features(df, feature_columns):
 
 
 # ==============================
-# LAST 3 DAYS PREDICTION ROW
+# BUILD PREDICTION ROW FOR TARGET DATE
 # ==============================
 
-def build_prediction_row(daily, feature_columns):
-    if len(daily) < 3:
-        raise ValueError("Need at least 3 days of data to predict.")
+def build_prediction_row_for_target(daily, target_date, feature_columns):
+    target_date = pd.to_datetime(target_date)
+    latest_data_date = target_date - timedelta(days=1)
 
-    last_3 = daily.tail(3)
-    i      = daily.index.max()   # position of most recent row
+    available = daily[daily["date"] <= latest_data_date]
+    last_3 = available.tail(3)
+
+    if len(last_3) < 3:
+        return None, None, None
 
     row = {}
 
@@ -349,7 +328,7 @@ def build_prediction_row(daily, feature_columns):
     ]
 
     # Derive publisher feature lists from saved columns
-    publisher_count_features     = []
+    publisher_count_features = []
     publisher_sentiment_features = []
     for col in feature_columns:
         if col.startswith("last3_") and col.endswith("_count"):
@@ -370,10 +349,11 @@ def build_prediction_row(daily, feature_columns):
         if col in daily.columns:
             row[f"last3_{col}"] = last_3[col].mean()
 
-    current_3_count = last_3["tweet_count"].sum()
-    if len(daily) >= 6:
-        prev_3_count = daily.iloc[-6:-3]["tweet_count"].sum()
-        row["last3_tweet_change"] = current_3_count - prev_3_count
+    current_3_count  = last_3["tweet_count"].sum()
+    first_idx        = last_3.index.min()
+    if first_idx >= 3:
+        prev_3 = daily.iloc[first_idx - 3:first_idx]
+        row["last3_tweet_change"] = current_3_count - prev_3["tweet_count"].sum()
     else:
         row["last3_tweet_change"] = 0
 
@@ -403,8 +383,8 @@ def build_prediction_row(daily, feature_columns):
     row["last3_oil_price_std"]    = last_3["oil_price"].std() if len(last_3) > 1 else 0
     row["last3_oil_price_change"] = p2 - p0
 
-    row["oil_momentum_1d"]   = p2 - p1
-    row["oil_momentum_2d"]   = p1 - p0
+    row["oil_momentum_1d"]  = p2 - p1
+    row["oil_momentum_2d"]  = p1 - p0
     row["oil_pct_change_1d"] = (p2 - p1) / p1 if p1 != 0 else 0
     row["oil_pct_change_2d"] = (p1 - p0) / p0 if p0 != 0 else 0
     row["oil_pct_change_3d"] = (p2 - p0) / p0 if p0 != 0 else 0
@@ -417,24 +397,25 @@ def build_prediction_row(daily, feature_columns):
     row["oil_up_3d"]  = 1 if row["last3_oil_price_change"] > 0 else 0
     row["oil_streak"] = row["oil_up_1d"] + row["oil_up_2d"] + row["oil_up_3d"]
 
-    # 7-day lookback
-    if i >= 7:
-        p_7d      = daily.iloc[i - 7]["oil_price"]
-        rolling_7 = daily.iloc[i - 6:i + 1]["oil_price"].mean()
-        row["oil_price_7d_ago"]   = p_7d
-        row["oil_pct_change_7d"]  = (p2 - p_7d) / p_7d if p_7d != 0 else 0
-        row["oil_rolling_avg_7d"] = rolling_7
-        row["oil_price_vs_avg7"]  = p2 - rolling_7
+    # 7-day lookback  (use available row, not only last_3)
+    available_idx = available.index.max()
+    if available_idx >= 7:
+        p_7d = available.iloc[available_idx - 7]["oil_price"]
+        rolling_7 = available.iloc[available_idx - 6:available_idx + 1]["oil_price"].mean()
+        row["oil_price_7d_ago"]    = p_7d
+        row["oil_pct_change_7d"]   = (p2 - p_7d) / p_7d if p_7d != 0 else 0
+        row["oil_rolling_avg_7d"]  = rolling_7
+        row["oil_price_vs_avg7"]   = p2 - rolling_7
     else:
-        row["oil_price_7d_ago"]   = p2
-        row["oil_pct_change_7d"]  = 0
-        row["oil_rolling_avg_7d"] = last_3["oil_price"].mean()
-        row["oil_price_vs_avg7"]  = 0
+        row["oil_price_7d_ago"]    = p2
+        row["oil_pct_change_7d"]   = 0
+        row["oil_rolling_avg_7d"]  = last_3["oil_price"].mean()
+        row["oil_price_vs_avg7"]   = 0
 
     # 14-day lookback
-    if i >= 14:
-        p_14d      = daily.iloc[i - 14]["oil_price"]
-        rolling_14 = daily.iloc[i - 13:i + 1]["oil_price"].mean()
+    if available_idx >= 14:
+        p_14d = available.iloc[available_idx - 14]["oil_price"]
+        rolling_14 = available.iloc[available_idx - 13:available_idx + 1]["oil_price"].mean()
         row["oil_price_14d_ago"]   = p_14d
         row["oil_pct_change_14d"]  = (p2 - p_14d) / p_14d if p_14d != 0 else 0
         row["oil_rolling_avg_14d"] = rolling_14
@@ -451,7 +432,7 @@ def build_prediction_row(daily, feature_columns):
 
 
 # ==============================
-# MODEL INPUT
+# BUILD MODEL INPUT
 # ==============================
 
 def build_model_input(row, last3_text, tfidf, feature_columns):
@@ -471,74 +452,22 @@ def build_model_input(row, last3_text, tfidf, feature_columns):
 
 
 # ==============================
-# UPDATE OLD PREDICTIONS WITH ACTUAL PRICES
+# ACTUAL PRICE LOOKUP
 # ==============================
 
-def update_old_predictions_with_actual_prices(daily, bin_edges):
-    client     = MongoClient(MONGO_URI)
-    db         = client[DB_NAME]
-    collection = db[PREDICTIONS_COLLECTION]
-
-    daily_lookup = {
-        str(row["date"].date()): float(row["oil_price"])
-        for _, row in daily.iterrows()
-    }
-
-    pending = list(collection.find({"actual_price": None}))
-
-    print("\n==============================")
-    print("UPDATING OLD PREDICTIONS")
-    print("==============================")
-    print(f"Pending predictions: {len(pending)}")
-
-    updated_count = 0
-
-    for prediction in pending:
-        target_date = prediction.get("target_date")
-
-        if target_date not in daily_lookup:
-            print(f"No actual price yet for {target_date}")
-            continue
-
-        actual_price = daily_lookup[target_date]
-        actual_bin, actual_range = get_bin_for_price(actual_price, bin_edges)
-        predicted_bin = prediction.get("predicted_bin")
-
-        is_correct = (
-            actual_bin is not None and
-            predicted_bin is not None and
-            int(predicted_bin) == int(actual_bin)
-        )
-
-        collection.update_one(
-            {"_id": prediction["_id"]},
-            {
-                "$set": {
-                    "actual_price": actual_price,
-                    "actual_bin":   actual_bin,
-                    "actual_range": actual_range,
-                    "is_correct":   is_correct,
-                    "updated_at":   datetime.utcnow()
-                }
-            }
-        )
-
-        updated_count += 1
-        print(
-            f"Updated {target_date}: "
-            f"actual_price={actual_price:.2f}, "
-            f"actual_range={actual_range}, "
-            f"correct={is_correct}"
-        )
-
-    print(f"Old predictions updated: {updated_count}")
+def get_actual_price_for_date(daily, target_date):
+    target_date = pd.to_datetime(target_date)
+    match = daily[daily["date"] == target_date]
+    if match.empty:
+        return None
+    return float(match.iloc[0]["oil_price"])
 
 
 # ==============================
-# SAVE NEW PREDICTION
+# SAVE TO MONGO
 # ==============================
 
-def save_prediction_to_mongo(prediction_doc):
+def save_prediction(prediction_doc):
     client     = MongoClient(MONGO_URI)
     db         = client[DB_NAME]
     collection = db[PREDICTIONS_COLLECTION]
@@ -552,92 +481,113 @@ def save_prediction_to_mongo(prediction_doc):
         upsert=True
     )
 
-    print("\nPrediction saved to MongoDB.")
-    print(prediction_doc)
-
 
 # ==============================
 # MAIN
 # ==============================
 
 def main():
-    # Do NOT retrain every time.
-    # Only uncomment when you intentionally want to rebuild model files.
-    # retrain_model()
-
     print("\n==============================")
-    print("Loading model artifacts")
+    print("BACKFILL HISTORICAL PREDICTIONS")
     print("==============================")
 
+    print("Loading model artifacts...")
     model           = joblib.load(MODEL_FILE)
     tfidf           = joblib.load(TFIDF_FILE)
     feature_columns = joblib.load(FEATURE_COLUMNS_FILE)
     bin_edges       = joblib.load(BIN_EDGES_FILE)   # numpy array
 
     print("Model loaded:", MODEL_FILE)
-    print("Expected feature count:", len(feature_columns))
+    print("Feature count:", len(feature_columns))
     print("Bin edges:", bin_edges)
 
-    print("Loading training data from MongoDB...")
-    client          = MongoClient(MONGO_URI)
-    records         = list(client[DB_NAME][TRAINING_COLLECTION].find({}, {"_id": 0}))
-    print(f"Loaded {len(records)} documents from MongoDB.")
-    df              = pd.DataFrame(records)
-    daily           = build_daily_features(df, feature_columns)
+    print("\nLoading CSV...")
+    df    = pd.read_csv(DATA_FILE, encoding="utf-8-sig")
+    daily = build_daily_features(df, feature_columns)
 
-    # Step 1: fill in actual prices for any past predictions that were pending
-    update_old_predictions_with_actual_prices(daily, bin_edges)
+    start_date   = pd.to_datetime(START_DATE)
+    end_date     = pd.to_datetime(END_DATE)
+    target_dates = pd.date_range(start=start_date, end=end_date, freq="D")
 
-    # Step 2: predict the day after the latest available oil data
-    row, last3_text, last_3 = build_prediction_row(daily, feature_columns)
+    created_count = 0
+    skipped_count = 0
 
-    X_input = build_model_input(
-        row             = row,
-        last3_text      = last3_text,
-        tfidf           = tfidf,
-        feature_columns = feature_columns
-    )
+    for target_date in target_dates:
+        target_date_str = str(target_date.date())
 
-    print("\nPrediction input shape:", X_input.shape)
+        actual_price = get_actual_price_for_date(daily, target_date)
 
-    if X_input.shape[1] != len(feature_columns):
-        raise ValueError(
-            f"Feature mismatch: X_input has {X_input.shape[1]} features, "
-            f"but expected {len(feature_columns)}."
+        if actual_price is None:
+            print(f"Skipping {target_date_str}: no actual oil price in CSV")
+            skipped_count += 1
+            continue
+
+        row, last3_text, last_3 = build_prediction_row_for_target(
+            daily          = daily,
+            target_date    = target_date,
+            feature_columns = feature_columns
         )
 
-    predicted_bin   = int(model.predict(X_input.values)[0])
-    predicted_range = bin_label(predicted_bin, bin_edges)
+        if row is None:
+            print(f"Skipping {target_date_str}: not enough previous days available")
+            skipped_count += 1
+            continue
 
-    latest_date = daily["date"].max().date()
-    target_date = latest_date + timedelta(days=1)
+        X_input = build_model_input(
+            row             = row,
+            last3_text      = last3_text,
+            tfidf           = tfidf,
+            feature_columns = feature_columns
+        )
 
-    prediction_doc = {
-        "prediction_date":  str(datetime.today().date()),
-        "target_date":      str(target_date),
-        "latest_data_date": str(latest_date),
-        "model_file":       "oil_model.pkl",
+        predicted_bin   = int(model.predict(X_input)[0])
+        predicted_range = bin_label(predicted_bin, bin_edges)
 
-        "predicted_bin":   predicted_bin,
-        "predicted_range": predicted_range,
+        actual_bin, actual_range = get_bin_for_price(actual_price, bin_edges)
 
-        "actual_price": None,
-        "actual_bin":   None,
-        "actual_range": None,
-        "is_correct":   None,
+        is_correct = (
+            actual_bin is not None and
+            int(predicted_bin) == int(actual_bin)
+        )
 
-        "last3_dates": [str(d.date()) for d in last_3["date"]],
-        "created_at":  datetime.utcnow()
-    }
+        latest_data_date = target_date - timedelta(days=1)
+
+        prediction_doc = {
+            "prediction_date":  str(latest_data_date.date()),
+            "target_date":      target_date_str,
+            "latest_data_date": str(latest_data_date.date()),
+            "model_file":       "oil_model.pkl",
+
+            "predicted_bin":   predicted_bin,
+            "predicted_range": predicted_range,
+
+            "actual_price": actual_price,
+            "actual_bin":   actual_bin,
+            "actual_range": actual_range,
+            "is_correct":   is_correct,
+
+            "last3_dates": [str(d.date()) for d in last_3["date"]],
+
+            "backfilled":    True,
+            "backfilled_at": datetime.utcnow(),
+            "created_at":    datetime.utcnow()
+        }
+
+        save_prediction(prediction_doc)
+        created_count += 1
+
+        print(
+            f"{target_date_str}: "
+            f"predicted={predicted_range}, "
+            f"actual={actual_price:.2f} / {actual_range}, "
+            f"correct={is_correct}"
+        )
 
     print("\n==============================")
-    print("NEXT OIL DATE PREDICTION")
+    print("BACKFILL FINISHED")
     print("==============================")
-    print("Latest data date:", latest_date)
-    print("Target date:     ", target_date)
-    print("Predicted range: ", predicted_range)
-
-    save_prediction_to_mongo(prediction_doc)
+    print(f"Created/updated: {created_count}")
+    print(f"Skipped:         {skipped_count}")
 
 
 if __name__ == "__main__":
