@@ -30,7 +30,7 @@ OIL_TARGET_PATH = os.path.join(
 )
 
 # Absolute earliest date to ever scrape from (historical backfill start)
-SCRAPE_HISTORY_START = "2025-12-01"
+SCRAPE_HISTORY_START = "2024-10-01"
 
 # Set to True to ignore existing data and re-scrape everything from SCRAPE_HISTORY_START.
 # Set back to False after the full rescrape is done so daily runs only fetch new tweets.
@@ -48,7 +48,7 @@ def get_scrape_start_date():
     - Otherwise use (last scraped date - 2 days) for incremental daily updates.
     """
     if FORCE_FULL_RESCRAPE:
-        print(f"FORCE_FULL_RESCRAPE=False → scraping from: {SCRAPE_HISTORY_START}")
+        print(f"FORCE_FULL_RESCRAPE=True → scraping from: {SCRAPE_HISTORY_START}")
         return SCRAPE_HISTORY_START
 
     if os.path.exists(COMBINED_TWEETS_FILE):
@@ -320,7 +320,7 @@ def main():
     driver = setup_web_driver()
 
     try:
-       # download_oil_csv(driver)
+       #download_oil_csv(driver)
         scrape_twitter_users(driver)
 
     finally:
