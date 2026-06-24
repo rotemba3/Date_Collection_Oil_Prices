@@ -563,7 +563,7 @@ def save_prediction_to_mongo(prediction_doc):
 def main():
     # Do NOT retrain every time.
     # Only uncomment when you intentionally want to rebuild model files.
-    # retrain_model()
+    retrain_model()
 
     print("\n==============================")
     print("Loading model artifacts")

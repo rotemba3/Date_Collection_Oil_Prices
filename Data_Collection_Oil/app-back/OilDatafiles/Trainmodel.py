@@ -22,7 +22,7 @@ from pymongo import MongoClient
 
 MONGO_URI  = "mongodb+srv://rotemba3_db_user:12345@dataoilscollect.bje8esi.mongodb.net/"
 DB_NAME    = "DataCollectionOil"
-COLLECTION = "modeltrainig"   # note: typo matches existing collection name
+COLLECTION = "modeltrainig"
 
 print("Connecting to MongoDB...")
 client     = MongoClient(MONGO_URI)
@@ -34,7 +34,7 @@ print(f"Loaded {len(records)} documents from MongoDB.")
 df = pd.DataFrame(records)
 
 df["date"]      = pd.to_datetime(df["date"], errors="coerce")
-df["date"]      = df["date"].dt.normalize()   # strip time → group by day correctly
+df["date"]      = df["date"].dt.normalize()
 df["oil_price"] = pd.to_numeric(df["oil_price"], errors="coerce")
 
 df = df.dropna(subset=["date", "oil_price"])
@@ -185,15 +185,13 @@ print("Top publishers used:", top_publishers)
 
 
 # ==============================
-# TOPIC GROUPS (expanded keywords)
+# TOPIC GROUPS
 # ==============================
 
 topic_groups = {
     "war": [
-        # original
         "war", "attack", "strike", "missile", "military", "terror",
         "rocket", "bomb", "killed", "troops", "hezbollah", "hamas",
-        # added
         "conflict", "combat", "warfare", "offensive", "assault", "airstrike",
         "invasion", "siege", "casualties", "wounded", "artillery", "drone",
         "navy", "battalion", "frontline", "rebel", "insurgent", "militia",
@@ -201,29 +199,23 @@ topic_groups = {
         "nuclear", "tactical", "hostage", "kidnap", "ambush", "guerrilla"
     ],
     "peace": [
-        # original
         "ceasefire", "peace", "agreement", "deal", "diplomacy",
         "negotiation", "talks", "truce",
-        # added
         "treaty", "accord", "settlement", "reconciliation", "mediation",
         "resolution", "dialogue", "summit", "bilateral", "multilateral",
         "humanitarian", "withdrawal", "deescalation", "armistice",
         "peacekeeping", "envoy", "ambassador", "cooperation", "alliance"
     ],
     "iran": [
-        # original
         "iran", "iranian", "tehran", "hormuz", "sanctions",
         "khamenei", "islamic", "republic",
-        # added
         "rouhani", "raisi", "irgc", "nuclear", "enrichment", "uranium",
         "strait", "persian", "gulf", "revolutionary", "guard", "proxy",
         "jcpoa", "vienna", "embargo", "ayatollah", "hardliner", "regime"
     ],
     "oil_energy": [
-        # original
         "oil", "gas", "fuel", "energy", "barrel", "crude",
         "petroleum", "prices", "export",
-        # added
         "opec", "brent", "wti", "refinery", "pipeline", "tanker",
         "lng", "shale", "offshore", "onshore", "drilling", "rig",
         "production", "output", "supply", "demand", "inventory",
@@ -232,10 +224,8 @@ topic_groups = {
         "coal", "nuclear", "powerplant", "electricity", "kwh", "megawatt"
     ],
     "usa": [
-        # original
         "america", "american", "usa", "us", "trump", "whitehouse",
         "washington", "biden",
-        # added
         "congress", "senate", "federal", "reserve", "pentagon",
         "state", "department", "cia", "democrat", "republican",
         "sanctions", "tariff", "policy", "administration", "secretary",
@@ -243,10 +233,8 @@ topic_groups = {
         "inflation", "interest", "rate", "stimulus", "deficit"
     ],
     "israel_lebanon": [
-        # original
         "israel", "israeli", "idf", "lebanon", "lebanese",
         "gaza", "jerusalem", "netanyahu",
-        # added
         "west", "bank", "palestine", "palestinian", "settler",
         "border", "occupation", "tel", "aviv", "haifa", "beirut",
         "south", "sinai", "golan", "hamas", "fatah", "PLO",
@@ -254,10 +242,8 @@ topic_groups = {
         "galilee", "beit", "iron", "dome", "knesset", "mossad"
     ],
     "economy": [
-        # original
         "economy", "market", "trade", "inflation", "stock",
         "dollar", "growth", "crisis",
-        # added
         "gdp", "recession", "depression", "unemployment", "jobs",
         "bond", "yield", "equity", "commodity", "forex", "currency",
         "euro", "yen", "yuan", "ruble", "debt", "deficit", "surplus",
@@ -266,7 +252,6 @@ topic_groups = {
         "worldbank", "wto", "g7", "g20", "brics", "export", "import",
         "tariff", "embargo", "supply", "chain", "logistics", "shipping"
     ],
-    # NEW TOPIC GROUPS
     "russia": [
         "russia", "russian", "moscow", "putin", "kremlin", "gazprom",
         "ukraine", "ukrainian", "kiev", "kyiv", "nato", "rosneft",
@@ -301,14 +286,11 @@ topic_groups = {
     ]
 }
 
-
 aggressive_words = [
-    # original
     "war", "attack", "strike", "missile", "rocket", "bomb",
     "killed", "dead", "death", "terror", "troops", "military",
     "violence", "explosion", "raid", "threat", "weapon", "weapons",
     "fire", "fired", "launch", "launched", "destroy", "destroyed",
-    # added
     "assassinate", "assassination", "massacre", "genocide", "airstrike",
     "shelling", "bombardment", "drone", "combat", "offensive", "siege",
     "ambush", "casualties", "wounded", "conflict", "hostage", "execute",
@@ -390,29 +372,21 @@ daily = daily.sort_values("date").reset_index(drop=True)
 
 # ==============================
 # 3-DAY WINDOW FEATURES
-# Day D-2 + D-1 + D -> predict Day D+1 price bin
 # ==============================
 
 window_rows = []
 
 count_features = [
-    "tweet_count",
-    "positive_tweets",
-    "negative_tweets",
-    "neutral_tweets",
-    "aggressive_count",
-    "aggressive_present"
+    "tweet_count", "positive_tweets", "negative_tweets",
+    "neutral_tweets", "aggressive_count", "aggressive_present"
 ]
 
-topic_features          = [f"{topic}_topic_count" for topic in topic_groups.keys()]
+topic_features           = [f"{topic}_topic_count" for topic in topic_groups.keys()]
 publisher_count_features = [f"{p}_count" for p in top_publishers]
 
 sentiment_features = [
-    "avg_sentiment",
-    "min_sentiment",
-    "max_sentiment",
-    "sentiment_std",
-    "aggressive_ratio"
+    "avg_sentiment", "min_sentiment", "max_sentiment",
+    "sentiment_std", "aggressive_ratio"
 ]
 
 publisher_sentiment_features = [f"{p}_avg_sentiment" for p in top_publishers]
@@ -428,7 +402,6 @@ for i in range(len(daily)):
     row = {}
     row["date"] = daily.loc[i, "date"]
 
-    # --- Aggregated tweet / topic / sentiment features ---
     for col in count_features + topic_features + publisher_count_features:
         row[f"last3_{col}"] = last_3[col].sum()
 
@@ -451,61 +424,44 @@ for i in range(len(daily)):
             if total_topic_count > 0 else 0
         )
 
-    # ==============================
-    # OIL PRICE HISTORY FEATURES
-    # All use only D-2, D-1, D (known before predicting D+1)
-    # ==============================
+    p0 = last_3["oil_price"].iloc[0]
+    p1 = last_3["oil_price"].iloc[1]
+    p2 = last_3["oil_price"].iloc[2]
 
-    p0 = last_3["oil_price"].iloc[0]   # D-2
-    p1 = last_3["oil_price"].iloc[1]   # D-1
-    p2 = last_3["oil_price"].iloc[2]   # D   (most recent known)
-
-    # Raw prices
-    row["oil_price_d"]       = p2
+    row["oil_price_d"]        = p2
     row["oil_price_d_minus1"] = p1
     row["oil_price_d_minus2"] = p0
 
-    # Rolling stats
     row["last3_oil_price_avg"]    = last_3["oil_price"].mean()
     row["last3_oil_price_min"]    = last_3["oil_price"].min()
     row["last3_oil_price_max"]    = last_3["oil_price"].max()
     row["last3_oil_price_std"]    = last_3["oil_price"].std() if len(last_3) > 1 else 0
-    row["last3_oil_price_change"] = p2 - p0   # 3-day net change
+    row["last3_oil_price_change"] = p2 - p0
 
-    # 1-day and 2-day momentum
     row["oil_momentum_1d"] = p2 - p1
     row["oil_momentum_2d"] = p1 - p0
 
-    # Percent changes
     row["oil_pct_change_1d"] = (p2 - p1) / p1 if p1 != 0 else 0
     row["oil_pct_change_2d"] = (p1 - p0) / p0 if p0 != 0 else 0
     row["oil_pct_change_3d"] = (p2 - p0) / p0 if p0 != 0 else 0
 
-    # Acceleration (momentum of momentum)
     row["oil_acceleration"] = row["oil_momentum_1d"] - row["oil_momentum_2d"]
+    row["oil_range_3d"]     = last_3["oil_price"].max() - last_3["oil_price"].min()
 
-    # Range (volatility proxy)
-    row["oil_range_3d"] = last_3["oil_price"].max() - last_3["oil_price"].min()
-
-    # Price relative to 3-day average (mean reversion signal)
     avg3 = last_3["oil_price"].mean()
     row["oil_price_vs_avg3"] = p2 - avg3
 
-    # Direction flags
-    row["oil_up_1d"]   = 1 if row["oil_momentum_1d"] > 0 else 0
-    row["oil_up_2d"]   = 1 if row["oil_momentum_2d"] > 0 else 0
-    row["oil_up_3d"]   = 1 if row["last3_oil_price_change"] > 0 else 0
-    row["oil_streak"]  = (
-        int(row["oil_up_1d"]) + int(row["oil_up_2d"]) + int(row["oil_up_3d"])
-    )  # 0-3: how many of last 3 days were up
+    row["oil_up_1d"]  = 1 if row["oil_momentum_1d"] > 0 else 0
+    row["oil_up_2d"]  = 1 if row["oil_momentum_2d"] > 0 else 0
+    row["oil_up_3d"]  = 1 if row["last3_oil_price_change"] > 0 else 0
+    row["oil_streak"] = int(row["oil_up_1d"]) + int(row["oil_up_2d"]) + int(row["oil_up_3d"])
 
-    # Longer lookback lags (if enough history)
     if i >= 7:
         p_7d_ago = daily.iloc[i - 7]["oil_price"]
-        row["oil_price_7d_ago"]      = p_7d_ago
-        row["oil_pct_change_7d"]     = (p2 - p_7d_ago) / p_7d_ago if p_7d_ago != 0 else 0
-        row["oil_rolling_avg_7d"]    = daily.iloc[i-6:i+1]["oil_price"].mean()
-        row["oil_price_vs_avg7"]     = p2 - row["oil_rolling_avg_7d"]
+        row["oil_price_7d_ago"]   = p_7d_ago
+        row["oil_pct_change_7d"]  = (p2 - p_7d_ago) / p_7d_ago if p_7d_ago != 0 else 0
+        row["oil_rolling_avg_7d"] = daily.iloc[i-6:i+1]["oil_price"].mean()
+        row["oil_price_vs_avg7"]  = p2 - row["oil_rolling_avg_7d"]
     else:
         row["oil_price_7d_ago"]   = p2
         row["oil_pct_change_7d"]  = 0
@@ -514,20 +470,42 @@ for i in range(len(daily)):
 
     if i >= 14:
         p_14d_ago = daily.iloc[i - 14]["oil_price"]
-        row["oil_price_14d_ago"]     = p_14d_ago
-        row["oil_pct_change_14d"]    = (p2 - p_14d_ago) / p_14d_ago if p_14d_ago != 0 else 0
-        row["oil_rolling_avg_14d"]   = daily.iloc[i-13:i+1]["oil_price"].mean()
-        row["oil_price_vs_avg14"]    = p2 - row["oil_rolling_avg_14d"]
+        row["oil_price_14d_ago"]   = p_14d_ago
+        row["oil_pct_change_14d"]  = (p2 - p_14d_ago) / p_14d_ago if p_14d_ago != 0 else 0
+        row["oil_rolling_avg_14d"] = daily.iloc[i-13:i+1]["oil_price"].mean()
+        row["oil_price_vs_avg14"]  = p2 - row["oil_rolling_avg_14d"]
     else:
-        row["oil_price_14d_ago"]  = p2
-        row["oil_pct_change_14d"] = 0
+        row["oil_price_14d_ago"]   = p2
+        row["oil_pct_change_14d"]  = 0
         row["oil_rolling_avg_14d"] = avg3
-        row["oil_price_vs_avg14"] = 0
+        row["oil_price_vs_avg14"]  = 0
 
-    # --- Text ---
-    row["last3_text"] = " ".join(last_3["daily_text"].astype(str))
+    # ==============================
+    # EXTENDED TREND FEATURES
+    # ==============================
 
-    # --- Target ---
+    if i >= 5:
+        p_5d = daily.iloc[i - 5]["oil_price"]
+        row["oil_pct_change_5d"]  = (p2 - p_5d) / p_5d if p_5d != 0 else 0
+        row["oil_rolling_avg_5d"] = daily.iloc[i-4:i+1]["oil_price"].mean()
+        row["oil_price_vs_avg5"]  = p2 - row["oil_rolling_avg_5d"]
+        last_5_prices = daily.iloc[i-4:i+1]["oil_price"].values
+        last_5_moves  = [1 if last_5_prices[j] > last_5_prices[j-1] else -1
+                         for j in range(1, len(last_5_prices))]
+        row["oil_streak_5d"] = sum(last_5_moves)
+    else:
+        row["oil_pct_change_5d"]  = 0
+        row["oil_rolling_avg_5d"] = avg3
+        row["oil_price_vs_avg5"]  = 0
+        row["oil_streak_5d"]      = 0
+
+    # Publisher tweet ratios (signal density)
+    total_tw = row.get("last3_tweet_count", 1) or 1
+    row["idf_tweet_ratio"]      = row.get("last3_IDF_count", 0) / total_tw
+    row["russia_tweet_ratio"]   = row.get("last3_mfa_russia_count", 0) / total_tw
+    row["araghchi_tweet_ratio"] = row.get("last3_araghchi_count", 0) / total_tw
+
+    row["last3_text"]        = " ".join(last_3["daily_text"].astype(str))
     row["tomorrow_oil_price"] = daily.loc[i + 1, "oil_price"]
 
     window_rows.append(row)
@@ -537,36 +515,63 @@ model_df = pd.DataFrame(window_rows).reset_index(drop=True)
 
 
 # ==============================
-# TARGET: 4 PRICE RANGES
-# FIX: bin edges computed on TRAIN set only
+# FEATURE AMPLIFICATION
+# High-signal features get multiplied so the model pays more attention
 # ==============================
 
-# Use 80% as the train boundary for bin edge computation
+# IDF, Russia, araghchi — tweet activity tracks oil price closely
+PUBLISHER_WEIGHT = 3.0
+for col in ["last3_IDF_count", "last3_mfa_russia_count", "last3_araghchi_count"]:
+    if col in model_df.columns:
+        model_df[col] = model_df[col] * PUBLISHER_WEIGHT
+        print(f"Amplified {col} by {PUBLISHER_WEIGHT}x")
+
+SENTIMENT_WEIGHT = 3.0
+for col in ["last3_IDF_avg_sentiment", "last3_mfa_russia_avg_sentiment", "last3_araghchi_avg_sentiment"]:
+    if col in model_df.columns:
+        model_df[col] = model_df[col] * SENTIMENT_WEIGHT
+        print(f"Amplified {col} by {SENTIMENT_WEIGHT}x")
+
+TREND_WEIGHT = 2.5
+for col in ["oil_streak", "oil_momentum_1d", "oil_momentum_2d",
+            "oil_acceleration", "oil_pct_change_1d", "oil_pct_change_3d",
+            "oil_pct_change_7d", "oil_pct_change_14d",
+            "oil_price_vs_avg3", "oil_price_vs_avg7", "oil_price_vs_avg14"]:
+    if col in model_df.columns:
+        model_df[col] = model_df[col] * TREND_WEIGHT
+        print(f"Amplified {col} by {TREND_WEIGHT}x")
+
+DIR_WEIGHT = 2.0
+for col in ["oil_up_1d", "oil_up_2d", "oil_up_3d"]:
+    if col in model_df.columns:
+        model_df[col] = model_df[col] * DIR_WEIGHT
+        print(f"Amplified {col} by {DIR_WEIGHT}x")
+
+
+# ==============================
+# TARGET: FIXED $10 BINS
+# ==============================
+
 train_end_for_bins = int(len(model_df) * 0.80)
 train_prices = model_df["tomorrow_oil_price"].iloc[:train_end_for_bins]
 
-# Custom bins: denser near the mean, wider at the extremes
-# Uses percentiles so all bins are guaranteed to have data:
-#   0 = very low    (below 20th percentile)
-#   1 = low         (20th to 40th percentile)
-#   2 = mid         (40th to 60th percentile)  ← 2 bins near center
-#   3 = high        (60th to 80th percentile)
-#   4 = very high   (above 80th percentile)
-mean  = train_prices.mean()
-std   = train_prices.std()
+mean = train_prices.mean()
+std  = train_prices.std()
 
-# Fixed price boundary bins
-bin_edges = np.array([-np.inf, 59.0, 64.0, 80.0, 90.0, 100.0, np.inf])
+BIN_WIDTH = 10
+BIN_START = 55
+BIN_END   = 115
 
-print(f"\nPrice mean: {mean:.2f}  std: {std:.2f}")
-print("Fixed bin edges:")
-print(f"  bin 0: below $59        (low)")
-print(f"  bin 1: $59  – $64       (mid-low)")
-print(f"  bin 2: $64  – $80       (mid)")
-print(f"  bin 3: $80  – $90       (mid-high)")
-print(f"  bin 4: $90  – $100      (high)")
-print(f"  bin 5: above $100       (very high)")
+fixed_edges = list(range(BIN_START, BIN_END, BIN_WIDTH))
+bin_edges   = np.array([BIN_START] + fixed_edges[1:] + [np.inf], dtype=float)
 
+print(f"\nPrice mean:   {mean:.2f}  std: {std:.2f}")
+print(f"Price range:  ${train_prices.min():.2f} – ${train_prices.max():.2f}")
+print(f"Fixed ${BIN_WIDTH} range bin edges:")
+for i in range(len(bin_edges) - 1):
+    left  = f"${bin_edges[i]:.0f}"
+    right = "+inf" if np.isinf(bin_edges[i+1]) else f"${bin_edges[i+1]:.0f}"
+    print(f"  bin {i}: {left} – {right}")
 
 model_df["price_bin"] = pd.cut(
     model_df["tomorrow_oil_price"],
@@ -574,7 +579,6 @@ model_df["price_bin"] = pd.cut(
     labels=False
 )
 
-# Drop rows where test prices fall outside train bin range (rare edge case)
 model_df = model_df.dropna(subset=["price_bin"]).reset_index(drop=True)
 model_df["price_bin"] = model_df["price_bin"].astype(int)
 
@@ -583,22 +587,40 @@ print(bin_edges)
 
 print("\nClass distribution:")
 dist   = model_df["price_bin"].value_counts().sort_index()
-labels = ["low", "mid-low", "mid", "mid-high", "high", "very high"]
+labels = ["$55-65", "$65-75", "$75-85", "$85-95", "$95-105", "$105-115", "$115+"]
 for bin_idx, count in dist.items():
     lbl = labels[int(bin_idx)] if int(bin_idx) < len(labels) else str(bin_idx)
     print(f"  bin {bin_idx} ({lbl:10s}): {count} samples")
 
 
 # ==============================
-# CHRONOLOGICAL SPLIT HELPER
+# SPLIT HELPERS
 # ==============================
 
 def time_split(X_arr, y_arr, test_size):
     split_idx = int(len(X_arr) * (1 - test_size))
-    return (
-        X_arr[:split_idx], X_arr[split_idx:],
-        y_arr[:split_idx], y_arr[split_idx:]
-    )
+    return X_arr[:split_idx], X_arr[split_idx:], y_arr[:split_idx], y_arr[split_idx:]
+
+
+def stratified_time_split(X_arr, y_arr, test_size, random_state=42):
+    """
+    Takes the last test_size fraction of each bin separately,
+    so all price regimes appear in both train and test.
+    """
+    np.random.seed(random_state)
+    train_idx = []
+    test_idx  = []
+
+    for cls in np.unique(y_arr):
+        cls_idx = np.where(y_arr == cls)[0]
+        n_test  = max(1, int(len(cls_idx) * test_size))
+        train_idx.extend(cls_idx[:-n_test].tolist())
+        test_idx.extend(cls_idx[-n_test:].tolist())
+
+    train_idx = np.array(sorted(train_idx))
+    test_idx  = np.array(sorted(test_idx))
+
+    return X_arr[train_idx], X_arr[test_idx], y_arr[train_idx], y_arr[test_idx]
 
 
 # ==============================
@@ -614,54 +636,37 @@ splits = {
 
 # ==============================
 # MODELS
-# Strong regularization to fight overfitting on small dataset
 # ==============================
 
 models = {
-    "Logistic Regression":  LogisticRegression(max_iter=3000, C=0.01, class_weight="balanced"),
-    "Logistic L1":          LogisticRegression(max_iter=3000, C=0.01, penalty="l1", solver="saga", class_weight="balanced"),
-    "SVC linear":           SVC(kernel="linear", C=0.01, class_weight="balanced"),
-    "SVC rbf":              SVC(kernel="rbf",    C=0.1,  class_weight="balanced"),
-    "Random Forest":        RandomForestClassifier(n_estimators=100, max_depth=3, min_samples_leaf=5, class_weight="balanced", random_state=42),
+    "Logistic Regression": LogisticRegression(max_iter=3000, C=0.01, class_weight="balanced"),
+    "Logistic L1":         LogisticRegression(max_iter=3000, C=0.01, penalty="l1", solver="saga", class_weight="balanced"),
+    "SVC linear":          SVC(kernel="linear", C=0.01, class_weight="balanced"),
+    "SVC rbf":             SVC(kernel="rbf",    C=0.1,  class_weight="balanced"),
+    "Random Forest":       RandomForestClassifier(n_estimators=100, max_depth=3, min_samples_leaf=5, class_weight="balanced", random_state=42),
 }
 
 
 # ==============================
 # TRAIN + EVALUATE
-# FIX: TF-IDF fitted only on training portion per split
-#      Chronological split (no shuffle)
 # ==============================
 
 results = []
 
-exclude_cols = [
-    "date",
-    "last3_text",
-    "tomorrow_oil_price",
-    "price_bin"
-]
-
-numeric_df = model_df.drop(columns=exclude_cols).fillna(0)
+exclude_cols = ["date", "last3_text", "tomorrow_oil_price", "price_bin"]
+numeric_df   = model_df.drop(columns=exclude_cols).fillna(0)
 
 for split_name, test_size in splits.items():
     print(f"\n{'='*40}")
     print(f"Split {split_name}")
     print('='*40)
 
-    split_idx = int(len(model_df) * (1 - test_size))
-
-    # --- FIX: fit TF-IDF only on training rows ---
-    # Use min_df=1, no stop_words removal when data is sparse
+    split_idx   = int(len(model_df) * (1 - test_size))
     train_texts = model_df["last3_text"].iloc[:split_idx]
     has_real_text = train_texts.str.replace("EMPTY", "").str.strip().str.len() > 0
 
     if has_real_text.sum() >= 3:
-        tfidf = TfidfVectorizer(
-            max_features=50,
-            stop_words=None,   # don't remove stop words when text is sparse
-            lowercase=True,
-            min_df=1
-        )
+        tfidf = TfidfVectorizer(max_features=50, stop_words=None, lowercase=True, min_df=1)
         try:
             tfidf.fit(train_texts)
             text_features      = tfidf.transform(model_df["last3_text"]).toarray()
@@ -669,10 +674,10 @@ for split_name, test_size in splits.items():
             text_df            = pd.DataFrame(text_features, columns=text_feature_names)
             print(f"  TF-IDF vocabulary size: {len(tfidf.vocabulary_)}")
         except ValueError:
-            print("  TF-IDF: empty vocabulary, skipping text features.")
+            print("  TF-IDF: empty vocabulary, skipping.")
             text_df = pd.DataFrame(index=model_df.index)
     else:
-        print("  TF-IDF: not enough real text in training set, skipping.")
+        print("  TF-IDF: not enough real text, skipping.")
         text_df = pd.DataFrame(index=model_df.index)
 
     X_df = pd.concat(
@@ -683,85 +688,80 @@ for split_name, test_size in splits.items():
     X = X_df.values
     y = model_df["price_bin"].values
 
-    X_train, X_test, y_train, y_test = time_split(X, y, test_size)
+    X_train, X_test, y_train, y_test = stratified_time_split(X, y, test_size)
 
     print(f"Train rows: {len(X_train)} | Test rows: {len(X_test)}")
     print(f"Features:   {X_df.shape[1]}")
+    unique, counts = np.unique(y_test, return_counts=True)
+    print(f"Test set classes: { {int(u): int(c) for u, c in zip(unique, counts)} }")
 
     for model_name, model in models.items():
         model.fit(X_train, y_train)
         preds = model.predict(X_test)
 
         acc         = accuracy_score(y_test, preds)
-        f1_macro    = f1_score(y_test, preds, average="macro")
-        f1_weighted = f1_score(y_test, preds, average="weighted")
+        f1_macro    = f1_score(y_test, preds, average="macro", zero_division=0)
+        f1_weighted = f1_score(y_test, preds, average="weighted", zero_division=0)
 
         results.append({
-            "split":       split_name,
-            "model":       model_name,
-            "accuracy":    acc,
-            "f1_macro":    f1_macro,
-            "f1_weighted": f1_weighted
+            "split": split_name, "model": model_name,
+            "accuracy": acc, "f1_macro": f1_macro, "f1_weighted": f1_weighted
         })
 
         print(f"  {model_name:25s}  acc={acc:.4f}  f1_macro={f1_macro:.4f}  f1_w={f1_weighted:.4f}")
 
 
 # ==============================
-# CROSS-VALIDATION (time series aware)
-# More reliable than a single split on small data
+# STRATIFIED TIME-AWARE CV
 # ==============================
 
-from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 
 print("\n" + "="*40)
-print("TIME SERIES CROSS-VALIDATION (5 folds)")
+print("STRATIFIED TIME-AWARE CROSS-VALIDATION (5 folds)")
 print("="*40)
+print("Each fold uses stratified_time_split so all bins appear in train+test.")
 
-# Use the 80-20 tfidf/X_df from the last split loop iteration
-tscv = TimeSeriesSplit(n_splits=5)
-
+N_CV_FOLDS = 5
 cv_results = []
 
 for cv_model_name, cv_model in models.items():
     fold_accs = []
+    fold_f1s  = []
 
-    for fold, (train_idx, test_idx) in enumerate(tscv.split(X)):
-        if len(test_idx) < 2:
-            continue
-
-        # Skip fold if train or test set has fewer than 2 classes
-        if len(np.unique(y[train_idx])) < 2:
-            continue
-        if len(np.unique(y[test_idx])) < 2:
-            continue
-
+    for fold in range(N_CV_FOLDS):
+        test_fraction = (fold + 1) / (N_CV_FOLDS + 1)
         try:
+            X_tr, X_te, y_tr, y_te = stratified_time_split(X, y, test_size=test_fraction)
+            if len(X_tr) < 10 or len(X_te) < 5:
+                continue
+            if len(np.unique(y_tr)) < 2 or len(np.unique(y_te)) < 2:
+                continue
             pipe = make_pipeline(StandardScaler(), cv_model.__class__(**cv_model.get_params()))
-            pipe.fit(X[train_idx], y[train_idx])
-            preds    = pipe.predict(X[test_idx])
-            fold_acc = accuracy_score(y[test_idx], preds)
-            fold_accs.append(fold_acc)
+            pipe.fit(X_tr, y_tr)
+            preds    = pipe.predict(X_te)
+            fold_accs.append(accuracy_score(y_te, preds))
+            fold_f1s.append(f1_score(y_te, preds, average="macro", zero_division=0))
         except Exception as e:
             print(f"  Fold {fold} skipped: {e}")
             continue
 
     mean_acc = np.mean(fold_accs) if fold_accs else 0
     std_acc  = np.std(fold_accs)  if fold_accs else 0
+    mean_f1  = np.mean(fold_f1s)  if fold_f1s  else 0
 
     cv_results.append({
-        "model":    cv_model_name,
-        "cv_mean":  mean_acc,
-        "cv_std":   std_acc,
-        "n_folds":  len(fold_accs)
+        "model": cv_model_name, "cv_mean": mean_acc,
+        "cv_std": std_acc, "cv_f1": mean_f1, "n_folds": len(fold_accs)
     })
 
-    print(f"  {cv_model_name:25s}  cv_acc={mean_acc:.4f} ± {std_acc:.4f}  ({len(fold_accs)} folds)")
+    print(f"  {cv_model_name:25s}  cv_acc={mean_acc:.4f} ± {std_acc:.4f}  f1={mean_f1:.4f}  ({len(fold_accs)} folds)")
 
-cv_df = pd.DataFrame(cv_results).sort_values("cv_mean", ascending=False)
-print("\nBest CV model:", cv_df.iloc[0]["model"], f"({cv_df.iloc[0]['cv_mean']:.4f})")
+cv_df = pd.DataFrame(cv_results).sort_values("cv_f1", ascending=False)
+print("\nBest CV model (by F1):", cv_df.iloc[0]["model"],
+      f"(cv_f1={cv_df.iloc[0]['cv_f1']:.4f}  cv_acc={cv_df.iloc[0]['cv_mean']:.4f})")
+
 
 # ==============================
 # SUMMARY
@@ -772,20 +772,21 @@ results_df = pd.DataFrame(results)
 print("\n" + "="*40)
 print("FINAL COMPARISON")
 print("="*40)
-print(
-    results_df
-    .sort_values(["split", "accuracy"], ascending=[True, False])
-    .to_string(index=False)
-)
+print(results_df.sort_values(["split", "accuracy"], ascending=[True, False]).to_string(index=False))
 
 print("\n" + "="*40)
 print("PIVOT: ACCURACY")
 print("="*40)
-print(
-    results_df.pivot(index="model", columns="split", values="accuracy")
-)
+print(results_df.pivot(index="model", columns="split", values="accuracy"))
 
-best = results_df.sort_values("accuracy", ascending=False).iloc[0]
+best_cv            = cv_df.iloc[0]
+best_cv_model_name = best_cv["model"]
+best_cv_split_name = results_df[results_df["model"] == best_cv_model_name].sort_values("f1_macro", ascending=False).iloc[0]["split"]
+best = results_df[
+    (results_df["model"] == best_cv_model_name) &
+    (results_df["split"] == best_cv_split_name)
+].iloc[0]
+print(f"\nSelecting best model by CV F1: {best_cv_model_name} (cv_f1={best_cv['cv_f1']:.4f}  cv_acc={best_cv['cv_mean']:.4f})")
 
 print("\n" + "="*40)
 print("BEST MODEL")
@@ -802,13 +803,7 @@ best_split      = best["split"]
 best_test_size  = splits[best_split]
 best_split_idx  = int(len(model_df) * (1 - best_test_size))
 
-# Refit TF-IDF for best split
-best_tfidf = TfidfVectorizer(
-    max_features=150,
-    stop_words="english",
-    lowercase=True,
-    min_df=1
-)
+best_tfidf = TfidfVectorizer(max_features=150, stop_words="english", lowercase=True, min_df=1)
 best_tfidf.fit(model_df["last3_text"].iloc[:best_split_idx])
 best_text_features = best_tfidf.transform(model_df["last3_text"]).toarray()
 best_text_df = pd.DataFrame(
@@ -824,18 +819,18 @@ best_X_df = pd.concat(
 X_best = best_X_df.values
 y_best = model_df["price_bin"].values
 
-X_train, X_test, y_train, y_test = time_split(X_best, y_best, best_test_size)
+X_train, X_test, y_train, y_test = stratified_time_split(X_best, y_best, best_test_size)
 
 best_model = models.get(best_model_name)
 if best_model is None:
-    raise ValueError(f"Best model name '{best_model_name}' not found in models dict.")
+    raise ValueError(f"Best model '{best_model_name}' not found.")
 best_model.fit(X_train, y_train)
 best_preds = best_model.predict(X_test)
 
 print(f"\n{'='*40}")
 print(f"CLASSIFICATION REPORT: {best_model_name}, split {best_split}")
 print("="*40)
-print(classification_report(y_test, best_preds))
+print(classification_report(y_test, best_preds, zero_division=0))
 
 
 # ==============================
@@ -869,17 +864,17 @@ print("="*40)
 
 BASE_DIR = r"C:\Users\97254\Desktop\twitter-scraper-author-data-main\Date_Collection_Oil_Prices\Data_Collection_Oil\app-back\OilDatafiles"
 
-MODEL_FILE            = os.path.join(BASE_DIR, "oil_model.pkl")
-TFIDF_FILE            = os.path.join(BASE_DIR, "tfidf.pkl")
-FEATURE_COLUMNS_FILE  = os.path.join(BASE_DIR, "feature_columns.pkl")
-BIN_EDGES_FILE        = os.path.join(BASE_DIR, "bin_edges.pkl")
-TRAINING_RESULTS_FILE = os.path.join(BASE_DIR, "training_results.csv")
+MODEL_FILE              = os.path.join(BASE_DIR, "oil_model.pkl")
+TFIDF_FILE              = os.path.join(BASE_DIR, "tfidf.pkl")
+FEATURE_COLUMNS_FILE    = os.path.join(BASE_DIR, "feature_columns.pkl")
+BIN_EDGES_FILE          = os.path.join(BASE_DIR, "bin_edges.pkl")
+TRAINING_RESULTS_FILE   = os.path.join(BASE_DIR, "training_results.csv")
 FEATURE_IMPORTANCE_FILE = os.path.join(BASE_DIR, "feature_importance.csv")
 
-joblib.dump(best_model,              MODEL_FILE)
-joblib.dump(best_tfidf,              TFIDF_FILE)
-joblib.dump(best_X_df.columns.tolist(), FEATURE_COLUMNS_FILE)
-joblib.dump(bin_edges,               BIN_EDGES_FILE)
+joblib.dump(best_model,                  MODEL_FILE)
+joblib.dump(best_tfidf,                  TFIDF_FILE)
+joblib.dump(best_X_df.columns.tolist(),  FEATURE_COLUMNS_FILE)
+joblib.dump(bin_edges,                   BIN_EDGES_FILE)
 
 results_df.to_csv(TRAINING_RESULTS_FILE,    index=False, encoding="utf-8-sig")
 importances.to_csv(FEATURE_IMPORTANCE_FILE, index=False, encoding="utf-8-sig")
@@ -888,7 +883,7 @@ print("Saved successfully:")
 print(f"  {MODEL_FILE}")
 print(f"  {TFIDF_FILE}")
 print(f"  {FEATURE_COLUMNS_FILE}")
-print(f"  {BIN_EDGES_FILE}  (replaces bin_table.pkl)")
+print(f"  {BIN_EDGES_FILE}")
 print(f"  {TRAINING_RESULTS_FILE}")
 print(f"  {FEATURE_IMPORTANCE_FILE}")
 

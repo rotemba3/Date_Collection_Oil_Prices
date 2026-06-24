@@ -26,7 +26,7 @@ DB_NAME              = "DataCollectionOil"
 PREDICTIONS_COLLECTION = "oil_predictions"
 
 START_DATE = "2026-05-01"
-END_DATE   = "2026-05-31"
+END_DATE   = "2026-06-22"
 
 
 # ==============================
