@@ -5,6 +5,7 @@ import subprocess
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
+from pandas.tseries.offsets import BDay
 from textblob import TextBlob
 from pymongo import MongoClient
 
@@ -91,6 +92,61 @@ def download_artifacts():
         )
         shutil.copy(downloaded_path, target)
         print(f"  {filename} -> {target}")
+
+
+# ==============================
+# TRANSLATION
+# Must mirror Trainmodel.py so sentiment/topic features are built
+# from the same English text representation used during training.
+# ==============================
+
+USE_TRANSLATION = True
+
+try:
+    from langdetect import detect
+    from deep_translator import GoogleTranslator
+    TRANSLATION_AVAILABLE = True
+    print("Translation tools loaded.")
+except Exception:
+    TRANSLATION_AVAILABLE = False
+    print("Translation tools not installed. Continuing without translation.")
+
+translation_cache = {}
+
+
+def translate_to_english(text):
+    if text is None:
+        return "EMPTY"
+
+    text = str(text).strip()
+
+    if text == "" or text.upper() == "EMPTY":
+        return "EMPTY"
+
+    if not USE_TRANSLATION or not TRANSLATION_AVAILABLE:
+        return text
+
+    if text in translation_cache:
+        return translation_cache[text]
+
+    try:
+        lang = detect(text)
+
+        if lang != "en":
+            translated = GoogleTranslator(
+                source="auto",
+                target="en"
+            ).translate(text)
+
+            translation_cache[text] = translated
+            return translated
+
+        translation_cache[text] = text
+        return text
+
+    except Exception:
+        translation_cache[text] = text
+        return text
 
 
 # ==============================
@@ -294,8 +350,11 @@ def build_daily_features(df, feature_columns):
     df = df.dropna(subset=["date", "oil_price"]).copy()
     df["text"]      = df["text"].fillna("EMPTY").astype(str)
     df["publisher"] = df["publisher"].fillna("EMPTY").astype(str)
-    df["clean_text"] = df["text"].apply(clean_text)
-    df["sentiment"]  = df["text"].apply(get_sentiment)
+
+    print("Translating non-English tweets if needed...")
+    df["text_en"]    = df["text"].apply(translate_to_english)
+    df["clean_text"] = df["text_en"].apply(clean_text)
+    df["sentiment"]  = df["text_en"].apply(get_sentiment)
 
     # Derive publisher list from saved feature columns,
     # excluding any name that matches a topic or known aggregate column
@@ -484,6 +543,80 @@ def build_prediction_row(daily, feature_columns):
         row["oil_rolling_avg_14d"] = last_3["oil_price"].mean()
         row["oil_price_vs_avg14"]  = 0
 
+    # ==============================
+    # EXTENDED TREND FEATURES
+    # Must match Trainmodel.py.
+    # ==============================
+
+    if i >= 5:
+        p_5d = daily.iloc[i - 5]["oil_price"]
+        row["oil_pct_change_5d"]  = (p2 - p_5d) / p_5d if p_5d != 0 else 0
+        row["oil_rolling_avg_5d"] = daily.iloc[i - 4:i + 1]["oil_price"].mean()
+        row["oil_price_vs_avg5"]  = p2 - row["oil_rolling_avg_5d"]
+
+        last_5_prices = daily.iloc[i - 4:i + 1]["oil_price"].values
+        last_5_moves = [
+            1 if last_5_prices[j] > last_5_prices[j - 1] else -1
+            for j in range(1, len(last_5_prices))
+        ]
+        row["oil_streak_5d"] = sum(last_5_moves)
+    else:
+        row["oil_pct_change_5d"]  = 0
+        row["oil_rolling_avg_5d"] = last_3["oil_price"].mean()
+        row["oil_price_vs_avg5"]  = 0
+        row["oil_streak_5d"]      = 0
+
+    # Publisher tweet ratios — same feature definitions as training.
+    total_tw = row.get("last3_tweet_count", 1) or 1
+    row["idf_tweet_ratio"]      = row.get("last3_IDF_count", 0) / total_tw
+    row["russia_tweet_ratio"]   = row.get("last3_mfa_russia_count", 0) / total_tw
+    row["araghchi_tweet_ratio"] = row.get("last3_araghchi_count", 0) / total_tw
+
+    # ==============================
+    # FEATURE AMPLIFICATION
+    # Must exactly match Trainmodel.py.
+    # ==============================
+
+    PUBLISHER_WEIGHT = 3.0
+    for col in [
+        "last3_IDF_count",
+        "last3_mfa_russia_count",
+        "last3_araghchi_count",
+    ]:
+        if col in row:
+            row[col] = row[col] * PUBLISHER_WEIGHT
+
+    SENTIMENT_WEIGHT = 3.0
+    for col in [
+        "last3_IDF_avg_sentiment",
+        "last3_mfa_russia_avg_sentiment",
+        "last3_araghchi_avg_sentiment",
+    ]:
+        if col in row:
+            row[col] = row[col] * SENTIMENT_WEIGHT
+
+    TREND_WEIGHT = 2.5
+    for col in [
+        "oil_streak",
+        "oil_momentum_1d",
+        "oil_momentum_2d",
+        "oil_acceleration",
+        "oil_pct_change_1d",
+        "oil_pct_change_3d",
+        "oil_pct_change_7d",
+        "oil_pct_change_14d",
+        "oil_price_vs_avg3",
+        "oil_price_vs_avg7",
+        "oil_price_vs_avg14",
+    ]:
+        if col in row:
+            row[col] = row[col] * TREND_WEIGHT
+
+    DIR_WEIGHT = 2.0
+    for col in ["oil_up_1d", "oil_up_2d", "oil_up_3d"]:
+        if col in row:
+            row[col] = row[col] * DIR_WEIGHT
+
     last3_text = " ".join(last_3["daily_text"].astype(str))
 
     return row, last3_text, last_3
@@ -496,16 +629,45 @@ def build_prediction_row(daily, feature_columns):
 def build_model_input(row, last3_text, tfidf, feature_columns):
     numeric_df = pd.DataFrame([row]).fillna(0)
 
-    text_features      = tfidf.transform([last3_text]).toarray()
-    text_feature_names = [f"word_{w}" for w in tfidf.get_feature_names_out()]
-    text_df            = pd.DataFrame(text_features, columns=text_feature_names)
+    if tfidf is not None:
+        text_features = tfidf.transform([last3_text]).toarray()
+        text_feature_names = [
+            f"word_{w}" for w in tfidf.get_feature_names_out()
+        ]
+        text_df = pd.DataFrame(
+            text_features,
+            columns=text_feature_names
+        )
 
-    full_df = pd.concat(
-        [numeric_df.reset_index(drop=True), text_df.reset_index(drop=True)],
-        axis=1
+        full_df = pd.concat(
+            [
+                numeric_df.reset_index(drop=True),
+                text_df.reset_index(drop=True),
+            ],
+            axis=1
+        )
+
+        print(
+            f"TF-IDF enabled: {len(text_feature_names)} text features."
+        )
+
+    else:
+        # The selected training run may have been trained without text
+        # features. In that case tfidf.pkl intentionally contains None.
+        full_df = numeric_df.reset_index(drop=True)
+        print("TF-IDF not used by trained model; using numeric features only.")
+
+    # Force the exact columns and exact order used during training.
+    X_input = full_df.reindex(
+        columns=feature_columns,
+        fill_value=0
     )
 
-    X_input = full_df.reindex(columns=feature_columns, fill_value=0)
+    print(
+        f"Built prediction features: {X_input.shape[1]} "
+        f"(expected {len(feature_columns)})"
+    )
+
     return X_input
 
 
@@ -615,6 +777,7 @@ def main():
 
     print("Model loaded:", MODEL_FILE)
     print("Expected feature count:", len(feature_columns))
+    print("TF-IDF artifact:", "enabled" if tfidf is not None else "None (numeric-only model)")
     print("Bin edges:", bin_edges)
 
     print("Loading training data from MongoDB...")
@@ -649,7 +812,13 @@ def main():
     predicted_range = bin_label(predicted_bin, bin_edges)
 
     latest_date = daily["date"].max().date()
-    target_date = latest_date + timedelta(days=1)
+
+    # Training predicts the next AVAILABLE oil-price row, not necessarily
+    # the next calendar day. At minimum, skip weekends so Friday predictions
+    # target Monday rather than Saturday.
+    target_date = (
+        pd.Timestamp(latest_date) + BDay(1)
+    ).date()
 
     prediction_doc = {
         "prediction_date":  str(datetime.today().date()),
