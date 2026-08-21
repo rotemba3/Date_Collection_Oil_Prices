@@ -1,6 +1,17 @@
-# Runs every day: scrapes new tweets + latest oil price (main.py), combines
-# them (combine_data.py), and pushes the result to MongoDB (sendtomongo.py).
-# Adjust the paths below if these .py files don't sit at the repo root.
+# Runs every day: fetches the latest oil price via yfinance (no browser
+# needed), combines it with whatever tweet CSVs are currently checked into
+# the repo (combine_data.py), and pushes the result to MongoDB
+# (sendtomongo.py).
+#
+# NOTE: Twitter scraping is currently NOT part of this workflow. twikit
+# (the library main.py used to rely on) is broken upstream as of this
+# writing. main.py, SearchScrapper.py, and WebDriverSetup.py have been
+# restored to their original Selenium versions and are meant to be run
+# BY HAND on your own machine (Selenium needs a real logged-in Chrome
+# window, which GitHub Actions doesn't have). When you run main.py locally
+# and git push the resulting CSVs under Data/Users_Timelines/ and
+# combined_tweets.csv, the next run of this workflow will pick them up
+# automatically — no other changes needed.
 
 name: Scrape Daily
 
@@ -12,7 +23,7 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 30
 
     steps:
       - name: Check out repository
@@ -26,10 +37,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Scrape tweets + oil prices
-        env:
-          TWITTER_COOKIES: ${{ secrets.TWITTER_COOKIES }}
-        run: python app-back/OilDatafiles/Scraper/main.py
+      - name: Fetch latest oil prices
+        run: python app-back/OilDatafiles/fetch_oil_prices.py
 
       - name: Combine tweets + oil data
         run: python app-back/OilDatafiles/combine_data.py

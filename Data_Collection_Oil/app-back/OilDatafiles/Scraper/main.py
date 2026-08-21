@@ -1,17 +1,18 @@
 ﻿import os
 import time
+import shutil
 import pandas as pd
 from datetime import datetime, timedelta
 
-from twikit import Client
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+from WebDriverSetup import setup_web_driver
 from SearchScrapper import SearchScrapper
 
-# CHANGED: BASE_DIR is now relative to this file's location in the repo,
-# instead of a hardcoded Windows path. Everything under it (Scraper/, Data/,
-# combined_tweets.csv, the oil CSV) keeps the same subfolder layout you
-# already had — only the root moved from C:\Users\... to "wherever this
-# repo is checked out."
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+BASE_DIR = r"C:\Users\97254\Desktop\twitter-scraper-author-data-main\Date_Collection_Oil_Prices\Data_Collection_Oil\app-back\OilDatafiles"
 
 INPUT_FILE  = os.path.join(BASE_DIR, "Scraper", "twitter_usernames_for_scraper.xlsx")
 OUT_DIR     = os.path.join(BASE_DIR, "Data", "Users_Timelines")
@@ -19,17 +20,14 @@ OUT_DIR     = os.path.join(BASE_DIR, "Data", "Users_Timelines")
 # Combined tweets file — used to find last scraped date
 COMBINED_TWEETS_FILE = os.path.join(BASE_DIR, "combined_tweets.csv")
 
-# CHANGED: the oil price CSV used to be downloaded by clicking a button on
-# investing.com with Selenium. GitHub Actions has no browser/Downloads
-# folder to do that with, so it's now fetched directly via yfinance (see
-# fetch_oil_csv() below). The output file keeps the exact same name/path
-# and the exact same Hebrew column format investing.com used to produce,
-# so combine_data.py needs ZERO changes.
+OIL_URL = "https://il.investing.com/commodities/crude-oil-historical-data"
+
+DOWNLOADS_FOLDER = r"C:\Users\97254\Downloads"
+
 OIL_TARGET_PATH = os.path.join(
     BASE_DIR,
     "_WTI - חוזים עתידיים על נפט גולמי - נתונים היסטוריים.csv"
 )
-OIL_TICKER = "CL=F"  # WTI Crude Oil futures on Yahoo Finance
 
 # Absolute earliest date to ever scrape from (historical backfill start)
 SCRAPE_HISTORY_START = "2026-6-01"
@@ -104,11 +102,14 @@ def load_usernames(input_path=INPUT_FILE, column="Twitter_username", limit=None)
     return users
 
 
-def scrape_user(client, username, start_date, end_date, max_tweets=5000):
-    # CHANGED: twikit takes a plain query string, not a x.com search URL.
-    search_query = f"(from:{username}) since:{start_date} until:{end_date}"
+def scrape_user(driver, username, start_date, end_date, max_tweets=5000):
+    search_query = (
+        f"https://x.com/search?q=%28from%3A{username}%29"
+        f"+since%3A{start_date}+until%3A{end_date}"
+        f"&src=typed_query&f=live"
+    )
 
-    scraped = SearchScrapper(client).scrape_twitter_query(
+    scraped = SearchScrapper(driver).scrape_twitter_query(
         search_query,
         username,
         max_tweets=max_tweets
@@ -155,7 +156,7 @@ def save_user_timeline(out_dir, username, rows):
     return out_path
 
 
-def scrape_twitter_users(client):
+def scrape_twitter_users(driver):
     print("\n==============================")
     print("Scraping Twitter/X users")
     print("==============================")
@@ -172,7 +173,7 @@ def scrape_twitter_users(client):
             print(f"\n[{i}/{len(users)}] Scraping @{user} ...")
 
             rows = scrape_user(
-                client,
+                driver,
                 user,
                 start_date,
                 end_date,
@@ -192,82 +193,138 @@ def scrape_twitter_users(client):
 # ==============================
 # OIL DOWNLOAD FUNCTIONS
 # ==============================
-# CHANGED: replaces the Selenium click-through-investing.com flow. Pulls
-# the same WTI crude data via yfinance and writes it in the identical
-# Hebrew-header, dd/mm/yyyy CSV format investing.com used to produce, so
-# combine_data.py (which parses that exact format) doesn't need to change.
 
-def fetch_oil_csv():
-    import yfinance as yf
+def close_popups(driver):
+    time.sleep(2)
+
+    try:
+        buttons = driver.find_elements(By.TAG_NAME, "button")
+        for btn in buttons:
+            text = btn.text.strip()
+            if text in ["Accept", "Agree", "I Agree", "קבל", "קבל הכל", "מסכים", "אישור"]:
+                driver.execute_script("arguments[0].click();", btn)
+                print("Clicked cookie button")
+                time.sleep(2)
+                break
+    except Exception as e:
+        print("Cookie close failed:", e)
+
+    try:
+        close_buttons = driver.find_elements(
+            By.XPATH, "//*[@data-test='close-button']"
+        )
+        for btn in close_buttons:
+            if btn.is_displayed():
+                driver.execute_script("arguments[0].click();", btn)
+                print("Closed signup/login popup")
+                time.sleep(2)
+                break
+    except Exception as e:
+        print("Popup close failed:", e)
+
+
+def click_oil_download(driver):
+    wait = WebDriverWait(driver, 30)
 
     print("\n==============================")
-    print("Downloading latest oil CSV (yfinance)")
+    print("Downloading latest oil CSV")
     print("==============================")
 
-    data = yf.download(OIL_TICKER, period="180d", interval="1d", progress=False)
-    if data.empty:
-        print("yfinance returned no data.")
+    driver.get(OIL_URL)
+    time.sleep(7)
+
+    close_popups(driver)
+
+    print("Trying to click download button...")
+
+    try:
+        download_button = wait.until(
+            EC.presence_of_element_located(
+                (By.XPATH, "//span[contains(text(), 'הורדה')]/parent::div")
+            )
+        )
+        driver.execute_script(
+            "arguments[0].scrollIntoView({block: 'center'});", download_button
+        )
+        time.sleep(1)
+        driver.execute_script("arguments[0].click();", download_button)
+        print("Clicked הורדה")
+        return True
+
+    except Exception as e:
+        print("Could not click הורדה:")
+        print(e)
         return False
 
-    if isinstance(data.columns, pd.MultiIndex):
-        data.columns = data.columns.get_level_values(0)
 
-    data = data.sort_index()
-    change_pct = data["Close"].pct_change() * 100
+def wait_for_download_and_copy(timeout=120):
+    print("\nWaiting for CSV download to finish...")
 
-    out = pd.DataFrame({
-        "תאריך":   data.index.strftime("%d/%m/%Y"),
-        "שער":     data["Close"].round(2),
-        "פתיחה":   data["Open"].round(2),
-        "גבוה":    data["High"].round(2),
-        "נמוך":    data["Low"].round(2),
-        "נפח":     data["Volume"].fillna(0).astype(int),
-        "שינוי %": change_pct.round(2).astype(str) + "%",
-    })
+    start_time = time.time()
 
-    # investing.com's export is newest-first — match that ordering.
-    out = out.iloc[::-1]
+    while time.time() - start_time < timeout:
+        files = os.listdir(DOWNLOADS_FOLDER)
 
-    out.to_csv(OIL_TARGET_PATH, index=False, encoding="utf-8-sig")
-    print(f"Saved oil CSV: {OIL_TARGET_PATH} ({len(out)} rows)")
+        still_downloading = any(
+            f.endswith(".crdownload") or f.endswith(".tmp")
+            for f in files
+        )
+
+        if still_downloading:
+            time.sleep(1)
+            continue
+
+        csv_files = [
+            os.path.join(DOWNLOADS_FOLDER, f)
+            for f in files
+            if f.lower().endswith(".csv")
+        ]
+
+        if csv_files:
+            latest_file = max(csv_files, key=os.path.getctime)
+            print("Latest CSV found:", latest_file)
+
+            if os.path.exists(OIL_TARGET_PATH):
+                os.remove(OIL_TARGET_PATH)
+                print("Removed old oil CSV.")
+
+            shutil.copy(latest_file, OIL_TARGET_PATH)
+            print("Copied oil CSV to project:", OIL_TARGET_PATH)
+            return True
+
+        time.sleep(1)
+
+    print("No CSV download found in time.")
+    return False
+
+
+def download_oil_csv(driver):
+    ok = click_oil_download(driver)
+    if not ok:
+        print("Oil download click failed.")
+        return False
+
+    copied = wait_for_download_and_copy(timeout=120)
+    if not copied:
+        print("Oil CSV copy failed.")
+        return False
+
     return True
 
 
 # ==============================
 # MAIN
 # ==============================
-# CHANGED: no more Selenium driver setup. twikit authenticates with saved
-# login cookies (see GUIDE.md for how to generate these once, locally) —
-# read from the TWITTER_COOKIES environment variable / GitHub secret so
-# nothing is hardcoded in this file.
-
-def setup_twikit_client():
-    cookies_json = os.environ.get("TWITTER_COOKIES")
-    if not cookies_json:
-        raise RuntimeError(
-            "TWITTER_COOKIES environment variable is not set. "
-            "See GUIDE.md for how to generate and store it."
-        )
-
-    cookies_path = os.path.join(BASE_DIR, "cookies.json")
-    with open(cookies_path, "w", encoding="utf-8") as f:
-        f.write(cookies_json)
-
-    client = Client("en-US")
-    client.load_cookies(cookies_path)
-    return client, cookies_path
-
 
 def main():
-    client, cookies_path = setup_twikit_client()
+    driver = setup_web_driver()
 
     try:
-        fetch_oil_csv()
-        scrape_twitter_users(client)
+       #download_oil_csv(driver)
+        scrape_twitter_users(driver)
 
     finally:
-        if os.path.exists(cookies_path):
-            os.remove(cookies_path)  # don't leave credentials on disk
+        driver.quit()
 
 
 if __name__ == "__main__":
