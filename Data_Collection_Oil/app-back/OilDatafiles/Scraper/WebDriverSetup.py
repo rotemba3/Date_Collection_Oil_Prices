@@ -4,8 +4,6 @@ Module for setting up Selenium WebDriver for scraping Twitter (X).
 Functions:
 - setup_web_driver(): Configures and initializes a Selenium WebDriver instance.
 
-Author: [Your Name]
-Date: [Update Date]
 """
 
 from selenium import webdriver
