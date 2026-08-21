@@ -24,11 +24,11 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r Data_Collection_Oil/requirements.txt
 
       - name: Train model and upload to Hugging Face Hub
         env:
           MONGO_URI: ${{ secrets.MONGO_URI }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO_ID: ${{ secrets.HF_REPO_ID }}
-        run: python app-back/OilDatafiles/Trainmodel.py
+        run: python Data_Collection_Oil/app-back/OilDatafiles/Trainmodel.py
