@@ -13,7 +13,8 @@ from pymongo import MongoClient
 # PATHS
 # ==============================
 
-BASE_DIR = r"C:\Users\97254\Desktop\twitter-scraper-author-data-main\Date_Collection_Oil_Prices\Data_Collection_Oil\app-back\OilDatafiles"
+# CHANGED: relative path instead of a hardcoded Windows one.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 TRAIN_SCRIPT         = os.path.join(BASE_DIR, "Trainmodel.py")
 
@@ -27,14 +28,17 @@ BIN_EDGES_FILE       = os.path.join(BASE_DIR, "bin_edges.pkl")   # <-- changed f
 # MONGODB
 # ==============================
 
-MONGO_URI              = "mongodb+srv://rotemba3_db_user:12345@dataoilscollect.bje8esi.mongodb.net/"
+# CHANGED: reads your existing MONGO_URI secret/env var instead of a
+# hardcoded connection string.
+MONGO_URI              = os.environ["MONGO_URI"]
 DB_NAME                = "DataCollectionOil"
 TRAINING_COLLECTION    = "modeltrainig"   # note: typo matches existing collection name
 PREDICTIONS_COLLECTION = "oil_predictions"
 
 
 # ==============================
-# OPTIONAL RETRAIN
+# OPTIONAL RETRAIN (left as-is, unused — training is now its own separate
+# weekly GitHub Actions job instead of being called from here)
 # ==============================
 
 def retrain_model():
@@ -52,6 +56,41 @@ def retrain_model():
         raise RuntimeError("Trainmodel.py failed. Cannot predict.")
 
     print("Model retrained successfully.")
+
+
+# ==============================
+# ADDED: DOWNLOAD MODEL ARTIFACTS FROM HUGGING FACE HUB
+# ==============================
+# predict_tomorrow.py now runs on a fresh GitHub Actions runner every day,
+# separate from the machine train_model.py ran on. This pulls down the
+# model files train_model.py last uploaded, before loading them below.
+
+def download_artifacts():
+    HF_REPO_ID = os.environ.get("HF_REPO_ID")
+    HF_TOKEN   = os.environ.get("HF_TOKEN")
+
+    if not HF_REPO_ID:
+        print("HF_REPO_ID not set — assuming model files already exist locally.")
+        return
+
+    import shutil
+    from huggingface_hub import hf_hub_download
+
+    print("\n==============================")
+    print("Downloading model artifacts from Hugging Face Hub")
+    print("==============================")
+
+    for filename, target in [
+        ("oil_model.pkl",       MODEL_FILE),
+        ("tfidf.pkl",           TFIDF_FILE),
+        ("feature_columns.pkl", FEATURE_COLUMNS_FILE),
+        ("bin_edges.pkl",       BIN_EDGES_FILE),
+    ]:
+        downloaded_path = hf_hub_download(
+            repo_id=HF_REPO_ID, filename=filename, repo_type="model", token=HF_TOKEN
+        )
+        shutil.copy(downloaded_path, target)
+        print(f"  {filename} -> {target}")
 
 
 # ==============================
@@ -561,9 +600,9 @@ def save_prediction_to_mongo(prediction_doc):
 # ==============================
 
 def main():
-    # Do NOT retrain every time.
-    # Only uncomment when you intentionally want to rebuild model files.
-    retrain_model()
+    # CHANGED: download this week's model from Hugging Face Hub instead of
+    # (optionally) retraining locally.
+    download_artifacts()
 
     print("\n==============================")
     print("Loading model artifacts")

@@ -30,7 +30,7 @@ OIL_TARGET_PATH = os.path.join(
 )
 
 # Absolute earliest date to ever scrape from (historical backfill start)
-SCRAPE_HISTORY_START = "2024-10-01"
+SCRAPE_HISTORY_START = "2026-6-01"
 
 # Set to True to ignore existing data and re-scrape everything from SCRAPE_HISTORY_START.
 # Set back to False after the full rescrape is done so daily runs only fetch new tweets.

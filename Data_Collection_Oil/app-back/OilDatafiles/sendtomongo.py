@@ -1,3 +1,4 @@
+import os
 import math
 import pandas as pd
 from pymongo import MongoClient, UpdateOne
@@ -6,14 +7,22 @@ from pymongo import MongoClient, UpdateOne
 # FILE PATH
 # ==============================
 
-csv_file = r"C:\Users\97254\Desktop\twitter-scraper-author-data-main\Date_Collection_Oil_Prices\Data_Collection_Oil\app-back\OilDatafiles\tweets_oil_gas_combined.csv"
+# CHANGED: relative to this file's location instead of a hardcoded Windows
+# path. Keep this file in the same folder as combine_data.py so this
+# lines up with what that script writes.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+csv_file = os.path.join(BASE_DIR, "tweets_oil_gas_combined.csv")
 
 # ==============================
 # MONGODB ATLAS CONNECTION
 # ==============================
+# CHANGED: reads your existing MONGO_URI secret/env var instead of a
+# hardcoded connection string. Use whatever name your GitHub secret already
+# has — if it's not literally "MONGO_URI", either rename the secret or
+# change the string below to match.
 
 print("Connecting to MongoDB...")
-client     = MongoClient("mongodb+srv://rotemba3_db_user:12345@dataoilscollect.bje8esi.mongodb.net/")
+client     = MongoClient(os.environ["MONGO_URI"])
 db         = client["DataCollectionOil"]
 collection = db["modeltrainig"]
 print("Connected.")

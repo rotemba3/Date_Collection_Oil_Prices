@@ -4,3 +4,7 @@ node_modules/
 build/
 dist/
 .DS_Store
+.venv/
+__pycache__/
+*.pyc
+cookies.json

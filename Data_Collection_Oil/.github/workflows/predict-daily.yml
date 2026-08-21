@@ -1,0 +1,38 @@
+# Runs automatically right after "Scrape Daily" finishes successfully.
+# Downloads the latest model from Hugging Face Hub, predicts tomorrow's
+# oil price range, and writes the prediction to MongoDB.
+
+name: Predict Daily
+
+on:
+  workflow_run:
+    workflows: ["Scrape Daily"]
+    types: [completed]
+  workflow_dispatch: {}
+
+jobs:
+  predict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Predict tomorrow's oil price range
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO_ID: ${{ secrets.HF_REPO_ID }}
+        run: python app-back/OilDatafiles/predict_tomorrow.py
