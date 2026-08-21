@@ -1,0 +1,10 @@
+yfinance
+pandas
+numpy
+pymongo
+scikit-learn
+textblob
+langdetect
+deep-translator
+joblib
+huggingface_hub
