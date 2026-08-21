@@ -5,8 +5,7 @@ Classes:
 - Tweet: Represents a single tweet with various attributes.
 - SearchScrapper: Handles scraping of Twitter search queries.
 
-Author: [Your Name]
-Date: [Update Date]
+A
 """
 
 from selenium import webdriver
