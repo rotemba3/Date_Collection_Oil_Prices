@@ -1,23 +1,25 @@
 """
-Module for scraping tweets using Selenium WebDriver.
+Module for scraping tweets using twikit (cookie-based, no browser).
 
-Classes:
-- Tweet: Represents a single tweet with various attributes.
-- SearchScrapper: Handles scraping of Twitter search queries.
+CHANGED FROM THE SELENIUM VERSION:
+- Constructor now takes a twikit.Client instead of a Selenium webdriver.
+- scrape_twitter_query() now takes a search QUERY STRING (e.g.
+  '(from:username) since:2026-06-01 until:2026-06-10') instead of a full
+  x.com search URL, since twikit talks to X's API directly rather than
+  loading a page. main.py builds this query string instead of a URL now.
+- Internally uses asyncio.run() so the rest of the codebase (main.py, etc.)
+  doesn't have to become async — scrape_twitter_query() is still called
+  as a normal, synchronous function.
+
+Everything else (the Tweet class, the returned data shape, the method
+name) is unchanged so the rest of the pipeline doesn't need to change.
 
 Author: [Your Name]
 Date: [Update Date]
 """
 
-from selenium import webdriver
-from selenium.webdriver.remote.webelement import WebElement
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.by import By
-from selenium.common.exceptions import StaleElementReferenceException, NoSuchElementException, TimeoutException
-from time import sleep
-import random
-import re
+import asyncio
+
 
 class Tweet:
     """
@@ -59,180 +61,114 @@ class Tweet:
         self.hashtags = hashtags
         self.url = url
 
+    def __eq__(self, other):
+        return isinstance(other, Tweet) and self.ID == other.ID
+
+    def __hash__(self):
+        return hash(self.ID)
+
+
 class SearchScrapper:
     """
-    Scraper for Twitter (X) search queries.
+    Scraper for Twitter (X) search queries, using twikit.
 
     Methods:
-    - scrape_twitter_query(query_url, hashtag, max_tweets): Scrapes tweets based on a search query URL.
+    - scrape_twitter_query(query, hashtag, max_tweets): Scrapes tweets based
+      on a twikit search query string (NOT a URL — see module docstring).
     """
-    def __init__(self, driver: webdriver.Chrome):
+    def __init__(self, client):
         """
-        Initializes the SearchScrapper with a Selenium WebDriver instance.
+        Initializes the SearchScrapper with a twikit.Client instance
+        that has already been authenticated (cookies loaded).
 
         Parameters:
-        - driver (webdriver.Chrome): The Selenium WebDriver instance.
+        - client (twikit.Client): An authenticated twikit client.
         """
-        self.driver = driver
+        self.client = client
 
-    def scrape_twitter_query(self, query_url: str, hashtag: str, max_tweets: int):
+    def scrape_twitter_query(self, query: str, hashtag: str, max_tweets: int):
         """
-        Scrapes tweets from a given Twitter search query.
+        Scrapes tweets from a given twikit search query.
 
         Parameters:
-        - query_url (str): URL for the Twitter search query.
-        - hashtag (str): Associated hashtag for the search query.
+        - query (str): twikit search query string, e.g.
+          '(from:someuser) since:2026-06-01 until:2026-06-10'.
+        - hashtag (str): Associated label for the search (kept from the
+          original signature — used here as the "publisher"/username tag).
         - max_tweets (int): Maximum number of tweets to scrape.
 
         Returns:
         - set[Tweet]: A set of Tweet objects containing scraped data.
         """
-        self.driver.get(query_url)
+        return asyncio.run(self._scrape_async(query, hashtag, max_tweets))
 
-        # Check for "No results" message
-        no_results = False
-        retries = 3
-        for _ in range(retries):
-            try:
-                no_results_element = self.driver.find_element(By.CSS_SELECTOR, "span.css-1jxf684")
-                if "No results" in no_results_element.text:
-                    print(f"No results found for hashtag: {hashtag}")
-                    no_results = True
-                    break
-            except (NoSuchElementException, StaleElementReferenceException):
-                sleep(0.5)
+    async def _scrape_async(self, query: str, hashtag: str, max_tweets: int):
+        import re
 
-        if no_results:
-            return set()
+        tweets_out = set()
+        processed_ids = set()
 
-        # Wait for tweets to load
         try:
-            WebDriverWait(self.driver, 30).until(
-                EC.presence_of_element_located((By.XPATH, '//article[@data-testid="tweet"]'))
-            )
-        except TimeoutException:
-            print(f"Timeout: No tweets found for hashtag: {hashtag}.")
-            return set()
+            result = await self.client.search_tweet(query, product="Latest")
+        except Exception as e:
+            print(f"Search failed for query '{query}': {e}")
+            return tweets_out
 
-        print("Scraping...")
-        hashtag_tweets = set()  # To store unique tweets
-        processed_ids = set()  # To track processed tweet IDs
-        prev_height = self.driver.execute_script('return document.body.scrollHeight')
-        i = 0
+        if not result:
+            print(f"No results found for: {hashtag}")
+            return tweets_out
 
-        while len(hashtag_tweets) < max_tweets:
+        while result and len(tweets_out) < max_tweets:
+            for t in result:
+                if len(tweets_out) >= max_tweets:
+                    break
+
+                tweet_id = str(getattr(t, "id", None))
+                if not tweet_id or tweet_id in processed_ids:
+                    continue
+                processed_ids.add(tweet_id)
+
+                content = getattr(t, "full_text", None) or getattr(t, "text", None)
+                author = getattr(getattr(t, "user", None), "screen_name", hashtag)
+                full_name = getattr(getattr(t, "user", None), "name", None)
+                timestamp = getattr(t, "created_at", "No timestamp available")
+                retweet_count = getattr(t, "retweet_count", 0)
+                like_count = getattr(t, "favorite_count", 0)
+                comments = getattr(t, "reply_count", 0)
+                bookmarks = getattr(t, "bookmark_count", 0)
+                views = getattr(t, "view_count", None)
+                url = f"https://x.com/{author}/status/{tweet_id}"
+                hashtags = re.findall(r'#\w+', content or "")
+
+                image_url = None
+                video_url = None
+                video_preview_image_url = None
+                media = getattr(t, "media", None)
+                if media:
+                    for m in media:
+                        m_type = getattr(m, "type", None)
+                        if m_type == "photo" and image_url is None:
+                            image_url = getattr(m, "media_url_https", None)
+                        elif m_type in ("video", "animated_gif") and video_url is None:
+                            video_preview_image_url = getattr(m, "media_url_https", None)
+
+                tweets_out.add(Tweet(
+                    ID=tweet_id, author=author, fullName=full_name, content=content,
+                    timestamp=timestamp, retweets=retweet_count, likes=like_count,
+                    hashtag=hashtag, views=views, comments=comments, bookmarks=bookmarks,
+                    image_url=image_url, video_url=video_url,
+                    video_preview_image_url=video_preview_image_url,
+                    hashtags=hashtags, url=url
+                ))
+
+            if len(tweets_out) >= max_tweets:
+                break
+
             try:
-                loaded_tweets = self.driver.find_elements(By.XPATH, '//article[@data-testid="tweet"]')
-                for tweet in loaded_tweets:
-                    if len(hashtag_tweets) >= max_tweets:
-                        break
+                result = await result.next()
+            except Exception as e:
+                print(f"Pagination stopped for '{query}': {e}")
+                break
 
-                    # Extract unique tweet ID from the URL
-                    try:
-                        tweet_link_element = tweet.find_element(By.XPATH, './/a[contains(@href, "/status/")]')
-                        url = tweet_link_element.get_attribute('href')
-                        tweet_id = url.split('/')[-1] if url else None
-                    except NoSuchElementException:
-                        tweet_id = None
-
-                    if tweet_id and tweet_id in processed_ids:
-                        continue  # Skip already processed tweets
-
-                    # Extract data from each tweet
-
-                    author = tweet.find_element(By.XPATH, './/span[contains(text(), "@")]').text.replace("@", "")
-                    
-                    try:
-                        content = tweet.find_element(By.XPATH, './/div[@data-testid="tweetText"]').text
-                    except NoSuchElementException:
-                        content = None
-
-                    try:
-                        full_name = tweet.find_element(By.XPATH, './/div[@data-testid="User-Name"]//span').text
-                    except NoSuchElementException:
-                        full_name = None
-
-                    # Finding the post URL
-                    try:
-                        tweet_link_element = tweet.find_element(By.XPATH, './/a[contains(@href, "/status/")]')
-                    except NoSuchElementException:
-                        tweet_link_element = None
-
-                    try:
-                        url = tweet_link_element.get_attribute('href') if tweet_link_element else None
-                    except NoSuchElementException:
-                        url = None
-
-                    # Extract the tweet ID from the URL
-                    try:
-                        tweet_id = url.split('/')[-1] if url else None
-                    except NoSuchElementException:
-                        tweet_id = None
-
-                    
-                    # Timestamp extraction
-                    try:
-                        timestamp_element = tweet.find_element(By.XPATH, './/time')
-                        timestamp = timestamp_element.get_attribute('datetime')
-                    except:
-                        timestamp = "No timestamp available"
-
-                    # Retweets, likes and comments extraction
-                    retweet_count = tweet.find_element(By.XPATH, './/button[@data-testid="retweet"]').text
-                    like_count = tweet.find_element(By.XPATH, './/button[@data-testid="like"]').text
-                    comments = tweet.find_element(By.XPATH, './/button[@data-testid="reply"]').text
-                    els = tweet.find_elements(By.XPATH, './/button[@data-testid="bookmark"]')
-                    bookmarks = els[0].text if els else "0"
-
-                    try:
-                        views = tweet.find_element(By.XPATH, "//*[@role='group']").text.split('\n')[-1]
-                    except NoSuchElementException:
-                        views = None 
-
-                    # Check for image URL
-                    try:
-                        tweet_photo_div = tweet.find_element(By.XPATH, './/div[@data-testid="tweetPhoto"]//img')
-                        image_url = tweet_photo_div.get_attribute('src')  # Extract the image URL from the src attribute
-                    except NoSuchElementException:
-                        image_url = None 
-
-                    # Check for video URL
-                    try:
-                        video_elements = tweet.find_elements(By.XPATH, './/div[@data-testid="videoPlayer"]//video')
-                        video_url = video_elements[0].get_attribute('src') if video_elements else None
-                        video_preview_image_url = video_elements[0].get_attribute('poster') if video_elements else None
-                    except NoSuchElementException:
-                        video_url = None
-                        video_preview_image_url = None
-
-                    hashtags = re.findall(r'#\w+', content or "")
-
-                    # Add tweet to results
-                    new_tweet = Tweet(
-                        ID=tweet_id, author=author, fullName=full_name, content=content, timestamp=timestamp,
-                        retweets=retweet_count, likes=like_count, hashtag=hashtag, views=views,
-                        comments=comments, bookmarks=bookmarks, image_url=image_url, video_url=video_url,
-                        video_preview_image_url=video_preview_image_url, hashtags=hashtags, url=url
-                    )
-                    hashtag_tweets.add(new_tweet)
-                    processed_ids.add(tweet_id)  # Mark tweet as processed
-
-                # Scroll to load more tweets
-                self.driver.execute_script('window.scrollBy(0, 1000)')
-                sleep(random.uniform(1, 3))
-                curr_height = self.driver.execute_script('return document.body.scrollHeight')
-
-                if curr_height == prev_height:
-                    i += 1
-                    if i == 10:
-                        break
-                else:
-                    i = 0
-                prev_height = curr_height
-
-            except StaleElementReferenceException:
-                pass
-
-        print('Scraping complete.')
-        return hashtag_tweets
-
+        print(f"Scraping complete for {hashtag}: {len(tweets_out)} tweets.")
+        return tweets_out

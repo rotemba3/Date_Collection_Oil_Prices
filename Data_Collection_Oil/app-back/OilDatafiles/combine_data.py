@@ -5,7 +5,11 @@ import pandas as pd
 # PATHS
 # ==============================
 
-base_dir = r"C:\Users\97254\Desktop\twitter-scraper-author-data-main\Date_Collection_Oil_Prices\Data_Collection_Oil\app-back\OilDatafiles"
+# CHANGED: relative to this file's location instead of a hardcoded Windows
+# path, so this works unchanged on the GitHub Actions runner. Keep this
+# file in the same folder as main.py so the relative paths below still
+# line up with what main.py writes.
+base_dir = os.path.dirname(os.path.abspath(__file__))
 
 timelines_dir        = os.path.join(base_dir, "Data", "Users_Timelines")
 combined_tweets_file = os.path.join(base_dir, "combined_tweets.csv")

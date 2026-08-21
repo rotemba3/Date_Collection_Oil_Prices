@@ -1,0 +1,11 @@
+twikit>=2.3.3
+yfinance
+pandas
+numpy
+pymongo
+scikit-learn
+textblob
+langdetect
+deep-translator
+joblib
+huggingface_hub

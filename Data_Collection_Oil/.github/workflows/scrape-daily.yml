@@ -1,0 +1,40 @@
+# Runs every day: scrapes new tweets + latest oil price (main.py), combines
+# them (combine_data.py), and pushes the result to MongoDB (sendtomongo.py).
+# Adjust the paths below if these .py files don't sit at the repo root.
+
+name: Scrape Daily
+
+on:
+  schedule:
+    - cron: "0 5 * * *"   # 05:00 UTC daily — cron is always UTC
+  workflow_dispatch: {}    # lets you click "Run workflow" in the Actions tab to test
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Scrape tweets + oil prices
+        env:
+          TWITTER_COOKIES: ${{ secrets.TWITTER_COOKIES }}
+        run: python app-back/OilDatafiles/Scraper/main.py
+
+      - name: Combine tweets + oil data
+        run: python app-back/OilDatafiles/combine_data.py
+
+      - name: Push combined data to MongoDB
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+        run: python app-back/OilDatafiles/sendtomongo.py

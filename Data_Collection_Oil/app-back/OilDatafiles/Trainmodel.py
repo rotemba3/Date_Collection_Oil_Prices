@@ -18,9 +18,12 @@ warnings.filterwarnings("ignore")
 # LOAD DATA FROM MONGODB
 # ==============================
 
+import os
 from pymongo import MongoClient
 
-MONGO_URI  = "mongodb+srv://rotemba3_db_user:12345@dataoilscollect.bje8esi.mongodb.net/"
+# CHANGED: reads your existing MONGO_URI secret/env var instead of a
+# hardcoded connection string.
+MONGO_URI  = os.environ["MONGO_URI"]
 DB_NAME    = "DataCollectionOil"
 COLLECTION = "modeltrainig"
 
@@ -856,13 +859,13 @@ print(importances.head(40).to_string(index=False))
 # ==============================
 
 import joblib
-import os
 
 print("\n" + "="*40)
 print("SAVING BEST MODEL AND ARTIFACTS")
 print("="*40)
 
-BASE_DIR = r"C:\Users\97254\Desktop\twitter-scraper-author-data-main\Date_Collection_Oil_Prices\Data_Collection_Oil\app-back\OilDatafiles"
+# CHANGED: relative path instead of a hardcoded Windows one.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 MODEL_FILE              = os.path.join(BASE_DIR, "oil_model.pkl")
 TFIDF_FILE              = os.path.join(BASE_DIR, "tfidf.pkl")
@@ -891,4 +894,47 @@ print(f"\nBest model:  {best_model_name}")
 print(f"Split:       {best_split}")
 print(f"Accuracy:    {best['accuracy']:.4f}")
 print(f"F1 macro:    {best['f1_macro']:.4f}")
+
+
+# ==============================
+# PUSH ARTIFACTS TO HUGGING FACE HUB
+# ==============================
+# ADDED: this is the one piece that has no local equivalent. GitHub Actions
+# throws away the runner's disk after every job, and train_model.py and
+# predict_tomorrow.py run as two SEPARATE jobs (weekly vs. daily) on two
+# DIFFERENT machines. Something has to hold the trained model files between
+# those runs — a Hugging Face Hub model repo is that persistent storage.
+# See GUIDE.md for how to create the repo and get HF_TOKEN / HF_REPO_ID.
+
+HF_REPO_ID = os.environ.get("HF_REPO_ID")
+HF_TOKEN   = os.environ.get("HF_TOKEN")
+
+if HF_REPO_ID and HF_TOKEN:
+    from huggingface_hub import HfApi, create_repo
+
+    print("\n" + "="*40)
+    print("UPLOADING ARTIFACTS TO HUGGING FACE HUB")
+    print("="*40)
+
+    api = HfApi(token=HF_TOKEN)
+    create_repo(HF_REPO_ID, token=HF_TOKEN, repo_type="model", exist_ok=True)
+
+    for local_file in [
+        MODEL_FILE, TFIDF_FILE, FEATURE_COLUMNS_FILE, BIN_EDGES_FILE,
+        TRAINING_RESULTS_FILE, FEATURE_IMPORTANCE_FILE,
+    ]:
+        api.upload_file(
+            path_or_fileobj=local_file,
+            path_in_repo=os.path.basename(local_file),
+            repo_id=HF_REPO_ID,
+            repo_type="model",
+        )
+        print(f"  Uploaded {os.path.basename(local_file)} -> {HF_REPO_ID}")
+
+    print("Upload complete.")
+else:
+    print(
+        "\nHF_REPO_ID / HF_TOKEN not set — skipping Hugging Face upload "
+        "(artifacts were still saved locally)."
+    )
 print(f"F1 weighted: {best['f1_weighted']:.4f}")
