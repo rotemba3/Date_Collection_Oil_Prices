@@ -729,6 +729,13 @@ print("Each fold uses stratified_time_split so all bins appear in train+test.")
 N_CV_FOLDS = 5
 cv_results = []
 
+# IMPORTANT:
+# Use a fixed feature matrix for cross-validation instead of relying on
+# `X` and `y` left over from the final iteration of the split loop.
+# Numeric features are always available and are consistent across folds.
+X_cv = numeric_df.values
+y_cv = model_df["price_bin"].values
+
 for cv_model_name, cv_model in models.items():
     fold_accs = []
     fold_f1s  = []
@@ -736,7 +743,9 @@ for cv_model_name, cv_model in models.items():
     for fold in range(N_CV_FOLDS):
         test_fraction = (fold + 1) / (N_CV_FOLDS + 1)
         try:
-            X_tr, X_te, y_tr, y_te = stratified_time_split(X, y, test_size=test_fraction)
+            X_tr, X_te, y_tr, y_te = stratified_time_split(
+                X_cv, y_cv, test_size=test_fraction
+            )
             if len(X_tr) < 10 or len(X_te) < 5:
                 continue
             if len(np.unique(y_tr)) < 2 or len(np.unique(y_te)) < 2:
@@ -806,16 +815,67 @@ best_split      = best["split"]
 best_test_size  = splits[best_split]
 best_split_idx  = int(len(model_df) * (1 - best_test_size))
 
-best_tfidf = TfidfVectorizer(max_features=150, stop_words="english", lowercase=True, min_df=1)
-best_tfidf.fit(model_df["last3_text"].iloc[:best_split_idx])
-best_text_features = best_tfidf.transform(model_df["last3_text"]).toarray()
-best_text_df = pd.DataFrame(
-    best_text_features,
-    columns=[f"word_{w}" for w in best_tfidf.get_feature_names_out()]
+# Rebuild text features using the SAME logic/configuration used during
+# split evaluation. TF-IDF is optional because some training windows may
+# not contain enough usable text.
+best_train_texts = (
+    model_df["last3_text"]
+    .iloc[:best_split_idx]
+    .fillna("EMPTY")
+    .astype(str)
 )
 
+best_has_real_text = (
+    best_train_texts
+    .str.replace("EMPTY", "", regex=False)
+    .str.strip()
+    .str.len() > 0
+)
+
+best_tfidf = None
+
+if best_has_real_text.sum() >= 3:
+    try:
+        best_tfidf = TfidfVectorizer(
+            max_features=50,
+            stop_words=None,
+            lowercase=True,
+            min_df=1
+        )
+
+        best_tfidf.fit(best_train_texts)
+
+        best_text_features = best_tfidf.transform(
+            model_df["last3_text"].fillna("EMPTY").astype(str)
+        ).toarray()
+
+        best_text_df = pd.DataFrame(
+            best_text_features,
+            columns=[
+                f"word_{w}"
+                for w in best_tfidf.get_feature_names_out()
+            ]
+        )
+
+        print(
+            f"Best-model TF-IDF vocabulary size: "
+            f"{len(best_tfidf.vocabulary_)}"
+        )
+
+    except ValueError as e:
+        print(f"Best-model TF-IDF skipped: {e}")
+        best_tfidf = None
+        best_text_df = pd.DataFrame(index=model_df.index)
+
+else:
+    print("Best-model TF-IDF: not enough real text, skipping.")
+    best_text_df = pd.DataFrame(index=model_df.index)
+
 best_X_df = pd.concat(
-    [numeric_df.reset_index(drop=True), best_text_df.reset_index(drop=True)],
+    [
+        numeric_df.reset_index(drop=True),
+        best_text_df.reset_index(drop=True)
+    ],
     axis=1
 )
 
