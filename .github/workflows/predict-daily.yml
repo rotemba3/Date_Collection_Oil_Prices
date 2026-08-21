@@ -28,11 +28,11 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r Data_Collection_Oil/requirements.txt
 
       - name: Predict tomorrow's oil price range
         env:
           MONGO_URI: ${{ secrets.MONGO_URI }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO_ID: ${{ secrets.HF_REPO_ID }}
-        run: python app-back/OilDatafiles/predict_tomorrow.py
+        run: python Data_Collection_Oil/app-back/OilDatafiles/predict_tomorrow.py
