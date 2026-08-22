@@ -1,0 +1,20 @@
+# Backend / Django API
+Django==6.0.6
+django-cors-headers==4.9.0
+
+# Data processing and MongoDB
+pandas==3.0.3
+numpy==2.4.6
+pymongo[srv]==4.17.0
+openpyxl
+
+# Scraping
+selenium
+webdriver-manager
+
+# Machine learning and NLP
+scikit-learn
+joblib
+textblob
+langdetect
+deep-translator
